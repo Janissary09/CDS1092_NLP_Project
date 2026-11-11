@@ -1,0 +1,54 @@
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+
+# Local datasets
+/data/*
+!/data/.gitkeep
+
+# Allow only the final processed SUM experiment splits
+!/data/processed/
+/data/processed/*
+!/data/processed/sum/
+/data/processed/sum/*
+!/data/processed/sum/train.csv
+!/data/processed/sum/validation.csv
+!/data/processed/sum/test.csv
+
+# Model checkpoints and weights
+checkpoints/
+checkpoint-*/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+pytorch_model*.bin
+
+# Hugging Face caches
+.cache/huggingface/
+.huggingface/
+hf_cache/
+
+# Temporary and local files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+tmp/
+temp/
+.DS_Store
+Thumbs.db
+
+# VS Code local settings
+.vscode/
