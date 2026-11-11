@@ -1,0 +1,28 @@
+{
+  "model_name": "bert-base-uncased",
+  "max_length": 256,
+  "batch_size": 32,
+  "learning_rate": 3e-05,
+  "max_epochs": 7,
+  "weight_decay": 0.01,
+  "warmup_ratio": 0.05,
+  "random_seed": 42,
+  "positive_class": "UNANSWERABLE",
+  "positive_label_id": 1,
+  "early_stopping_patience": 2,
+  "best_model_metric": "validation_f1",
+  "run_name": "run_02",
+  "num_train_epochs": 7,
+  "train_batch_size": 32,
+  "eval_batch_size": 32,
+  "seed": 42,
+  "metric_for_best_model": "f1",
+  "greater_is_better": true,
+  "train_dataset_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/data/processed/sum/train.csv",
+  "validation_dataset_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/data/processed/sum/validation.csv",
+  "label_to_id": {
+    "ANSWERABLE": 0,
+    "UNANSWERABLE": 1
+  },
+  "warmup_steps": 559
+}

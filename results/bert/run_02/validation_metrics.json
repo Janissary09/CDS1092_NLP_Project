@@ -1,0 +1,43 @@
+{
+  "best_validation_metrics": {
+    "eval_loss": 0.629921019077301,
+    "eval_accuracy": 0.8518823099415205,
+    "eval_precision": 0.8525911005310383,
+    "eval_recall": 0.8508771929824561,
+    "eval_f1": 0.8517332845513583,
+    "eval_runtime": 28.1332,
+    "eval_samples_per_second": 389.006,
+    "eval_steps_per_second": 12.156,
+    "epoch": 7.0
+  },
+  "best_checkpoint": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/models/bert/run_02/checkpoints/checkpoint-11172",
+  "best_checkpoint_validation_f1": 0.8517332845513583,
+  "configuration": {
+    "model_name": "bert-base-uncased",
+    "max_length": 256,
+    "batch_size": 32,
+    "learning_rate": 3e-05,
+    "max_epochs": 7,
+    "weight_decay": 0.01,
+    "warmup_ratio": 0.05,
+    "random_seed": 42,
+    "positive_class": "UNANSWERABLE",
+    "positive_label_id": 1,
+    "early_stopping_patience": 2,
+    "best_model_metric": "validation_f1",
+    "warmup_steps": 559,
+    "planned_optimizer_steps": 11172,
+    "train_examples": 51072,
+    "validation_examples": 10944,
+    "label_to_id": {
+      "ANSWERABLE": 0,
+      "UNANSWERABLE": 1
+    },
+    "evaluation_strategy": "epoch",
+    "scheduler": "linear",
+    "optimizer": "adamw_torch",
+    "device": "cuda:0",
+    "torch_version": "2.11.0+cu128",
+    "transformers_version": "5.22.2"
+  }
+}
