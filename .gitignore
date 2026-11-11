@@ -26,6 +26,7 @@ env/
 !/data/processed/sum/test.csv
 
 # Model checkpoints and weights
+/models/
 checkpoints/
 checkpoint-*/
 *.pt
