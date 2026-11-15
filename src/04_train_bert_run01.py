@@ -1,6 +1,6 @@
-"""Fine-tune BERT Run 02 on SUM training data, selecting by validation F1.
+"""Fine-tune BERT on SUM training data, selecting by validation F1.
 
-Run from the project root: python src/train_bert_run02.py
+Run from the project root: python src/04_train_bert_run01.py
 Requires the project libraries and Accelerate (used by Hugging Face Trainer).
 Only train.csv and validation.csv are read. Run on one allocated CUDA GPU;
 CUDA_VISIBLE_DEVICES can select it on the FHGR Linux server.
@@ -18,16 +18,16 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data/processed/sum"
-MODEL_DIR = PROJECT_ROOT / "models/bert/run_02/best_model"
-CHECKPOINT_DIR = PROJECT_ROOT / "models/bert/run_02/checkpoints"
-RESULTS_DIR = PROJECT_ROOT / "results/bert/run_02"
+MODEL_DIR = PROJECT_ROOT / "models/bert/best_model"
+CHECKPOINT_DIR = PROJECT_ROOT / "models/bert/checkpoints"
+RESULTS_DIR = PROJECT_ROOT / "results/bert"
 LABEL_TO_ID = {"ANSWERABLE": 0, "UNANSWERABLE": 1}
 CONFIG = {
     "model_name": "bert-base-uncased",
     "max_length": 256,
     "batch_size": 32,
-    "learning_rate": 3e-5,
-    "max_epochs": 7,
+    "learning_rate": 2e-5,
+    "max_epochs": 5,
     "weight_decay": 0.01,
     "warmup_ratio": 0.05,
     "random_seed": 42,
@@ -160,25 +160,6 @@ def main():
 
     # Validation runs each epoch. Stop after two evaluations without an F1
     # improvement; Trainer reloads the best checkpoint when training finishes.
-    # Record the exact Run 02 settings before starting training.
-    run_config = {
-        **CONFIG,
-        "run_name": "run_02",
-        "num_train_epochs": arguments.num_train_epochs,
-        "train_batch_size": arguments.per_device_train_batch_size,
-        "eval_batch_size": arguments.per_device_eval_batch_size,
-        "seed": arguments.seed,
-        "metric_for_best_model": arguments.metric_for_best_model,
-        "greater_is_better": arguments.greater_is_better,
-        "train_dataset_path": str(DATA_DIR / "train.csv"),
-        "validation_dataset_path": str(DATA_DIR / "validation.csv"),
-        "label_to_id": LABEL_TO_ID,
-        "warmup_steps": warmup_steps,
-    }
-    with (RESULTS_DIR / "config.json").open("w", encoding="utf-8") as handle:
-        json.dump(run_config, handle, indent=2)
-        handle.write("\n")
-
     trainer.train()
     best_metrics = trainer.evaluate(eval_dataset=validation_data)
     trainer.save_model(str(MODEL_DIR))
@@ -191,8 +172,7 @@ def main():
     report = {
         "best_validation_metrics": best_metrics,
         "best_checkpoint": trainer.state.best_model_checkpoint,
-        "best_checkpoint_validation_f1": (float(trainer.state.best_metric)
-                                          if trainer.state.best_metric is not None else None),
+        "best_checkpoint_validation_f1": float(trainer.state.best_metric),
         "configuration": {
             **CONFIG,
             "warmup_steps": warmup_steps,
@@ -212,9 +192,7 @@ def main():
         json.dump(report, handle, indent=2)
         handle.write("\n")
     print(f"Best model and tokenizer: {MODEL_DIR}")
-    print(f"Results directory: {RESULTS_DIR}")
-    if trainer.state.best_metric is not None:
-        print(f"Best validation F1: {trainer.state.best_metric:.6f}")
+    print(f"Training history and validation metrics: {RESULTS_DIR}")
 
 
 if __name__ == "__main__":

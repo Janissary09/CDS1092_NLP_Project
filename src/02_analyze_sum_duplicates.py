@@ -1,6 +1,6 @@
 """Inspect exact SUM text duplicates without changing or saving any data.
 
-Run from the project root: python src/analyze_sum_duplicates.py
+Run from the project root: python src/02_analyze_sum_duplicates.py
 Equality is case-sensitive and includes all whitespace; no normalization is used.
 """
 

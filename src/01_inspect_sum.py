@@ -1,6 +1,6 @@
 """Load and inspect the official Synthetic Unanswerable Math (SUM) dataset.
 
-Run from the project root: python src/inspect_sum.py
+Run from the project root: python src/01_inspect_sum.py
 Source: https://huggingface.co/datasets/lime-nlp/Synthetic_Unanswerable_Math
 
 Hugging Face may download and cache the source data when this script runs.

@@ -116,11 +116,12 @@ CDS1092_NLP_Project/
 |   `-- 01_sum_dataset_analysis.ipynb
 |
 |-- src/
-|   |-- inspect_sum.py
-|   |-- analyze_sum_duplicates.py
-|   |-- prepare_sum.py
-|   |-- train_bert.py
-|   `-- train_bert_run02.py
+|   |-- 01_inspect_sum.py
+|   |-- 02_analyze_sum_duplicates.py
+|   |-- 03_prepare_sum.py
+|   |-- 04_train_bert_run01.py
+|   |-- 05_train_bert_run02.py
+|   `-- 06_train_bert_run03.py
 |
 |-- results/
 |   `-- bert/
@@ -164,14 +165,16 @@ exploratory work into training code.
 
 Reproducible Python scripts:
 
--   `inspect_sum.py` --- initial SUM inspection.
--   `analyze_sum_duplicates.py` --- duplicate-text analysis; used to
+-   `01_inspect_sum.py` --- initial SUM inspection.
+-   `02_analyze_sum_duplicates.py` --- duplicate-text analysis; used to
     detect leakage in the first split attempt.
--   `prepare_sum.py` --- creates the final leakage-safe 70/15/15 SUM
+-   `03_prepare_sum.py` --- creates the final leakage-safe 70/15/15 SUM
     split.
--   `train_bert.py` --- BERT Run 01.
--   `train_bert_run02.py` --- BERT Run 02 with its own configuration and
+-   `04_train_bert_run01.py` --- BERT Run 01.
+-   `05_train_bert_run02.py` --- BERT Run 02 with its own configuration and
     output directories.
+-   `06_train_bert_run03.py` --- controlled BERT Run 03: learning rate
+    `2e-5`, maximum 7 epochs; all other training settings match Run 02.
 
 Run-specific scripts are currently kept separate so completed
 experiments remain easy to reproduce and inspect.
@@ -255,7 +258,7 @@ installation.
 Prepare SUM only when intentionally recreating the dataset:
 
 ``` bash
-python src/prepare_sum.py
+python src/03_prepare_sum.py
 ```
 
 All model comparisons should use the same fixed train/validation/test
@@ -307,14 +310,25 @@ python -c "import torch; print(torch.cuda.get_device_name(0)); print('CUDA:', to
 Run 01:
 
 ``` bash
-python src/train_bert.py
+python src/04_train_bert_run01.py
 ```
 
 Run 02:
 
 ``` bash
-python src/train_bert_run02.py
+python src/05_train_bert_run02.py
 ```
+
+Run 03 (prepared; not yet trained):
+
+``` bash
+python src/06_train_bert_run03.py
+```
+
+Run 03 writes checkpoints to `models/bert/run_03/checkpoints/`, the best
+model to `models/bert/run_03/best_model/`, and `config.json`,
+`training_history.csv`, and `validation_metrics.json` to
+`results/bert/run_03/`. It reads only train and validation data.
 
 Training scripts store large model artifacts under `models/` and compact
 experiment records under `results/`.

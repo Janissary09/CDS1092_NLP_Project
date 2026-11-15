@@ -1,6 +1,6 @@
 """Prepare the final SUM split with pair and exact-text isolation.
 
-Run: python src/prepare_sum.py
+Run: python src/03_prepare_sum.py
 Original row indices are pair IDs. No text normalization or deletion is used.
 """
 
