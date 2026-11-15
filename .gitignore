@@ -16,6 +16,13 @@ env/
 /data/*
 !/data/.gitkeep
 
+# Allow only the official raw UMWP benchmark
+!/data/raw/
+/data/raw/*
+!/data/raw/umwp/
+/data/raw/umwp/*
+!/data/raw/umwp/StandardDataset.jsonl
+
 # Allow only the final processed SUM experiment splits
 !/data/processed/
 /data/processed/*
@@ -24,6 +31,11 @@ env/
 !/data/processed/sum/train.csv
 !/data/processed/sum/validation.csv
 !/data/processed/sum/test.csv
+
+# Allow only the processed UMWP external evaluation dataset
+!/data/processed/umwp/
+/data/processed/umwp/*
+!/data/processed/umwp/test.csv
 
 # Model checkpoints and weights
 /models/
