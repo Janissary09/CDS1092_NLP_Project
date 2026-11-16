@@ -1,0 +1,35 @@
+{
+  "accuracy": 0.847953216374269,
+  "precision_unanswerable": 0.8545623836126629,
+  "recall_unanswerable": 0.8386330409356725,
+  "f1_unanswerable": 0.8465227817745803,
+  "macro_f1": 0.847940007581116,
+  "total_examples": 10944,
+  "correct_predictions": 9280,
+  "incorrect_predictions": 1664,
+  "dataset": "sum",
+  "dataset_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/data/processed/sum/test.csv",
+  "model_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/models/bert/run_02/best_model",
+  "selected_run": "run_02",
+  "positive_class": "UNANSWERABLE",
+  "max_length": 256,
+  "eval_batch_size": 32,
+  "device": "cuda",
+  "confusion_matrix": [
+    [
+      4691,
+      781
+    ],
+    [
+      883,
+      4589
+    ]
+  ],
+  "confusion_matrix_label_order": [
+    "ANSWERABLE",
+    "UNANSWERABLE"
+  ],
+  "confusion_matrix_axes": "rows=true, columns=predicted",
+  "prediction_rule": "argmax",
+  "evaluation_only": true
+}

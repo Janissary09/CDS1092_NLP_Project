@@ -1,0 +1,41 @@
+{
+  "accuracy": 0.6761538461538461,
+  "precision_unanswerable": 0.7301507537688442,
+  "recall_unanswerable": 0.5588461538461539,
+  "f1_unanswerable": 0.6331154684095861,
+  "macro_f1": 0.6716351868726071,
+  "total_examples": 5200,
+  "correct_predictions": 3516,
+  "incorrect_predictions": 1684,
+  "dataset": "umwp",
+  "dataset_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/data/processed/umwp/test.csv",
+  "model_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/models/bert/run_02/best_model",
+  "selected_run": "run_02",
+  "positive_class": "UNANSWERABLE",
+  "max_length": 256,
+  "eval_batch_size": 32,
+  "device": "cuda",
+  "confusion_matrix": [
+    [
+      2063,
+      537
+    ],
+    [
+      1147,
+      1453
+    ]
+  ],
+  "confusion_matrix_label_order": [
+    "ANSWERABLE",
+    "UNANSWERABLE"
+  ],
+  "confusion_matrix_axes": "rows=true, columns=predicted",
+  "prediction_rule": "argmax",
+  "evaluation_only": true,
+  "duplicate_consistency": {
+    "duplicated_question_texts": 10,
+    "conflicting_ground_truth_texts": 5,
+    "texts_with_inconsistent_predictions": 0,
+    "identical_text_received_identical_predictions": true
+  }
+}
