@@ -1,0 +1,27 @@
+{
+  "ANSWERABLE": {
+    "precision": 0.5857142857142857,
+    "recall": 0.615,
+    "f1-score": 0.6,
+    "support": 2600.0
+  },
+  "UNANSWERABLE": {
+    "precision": 0.5947368421052631,
+    "recall": 0.565,
+    "f1-score": 0.5794871794871795,
+    "support": 2600.0
+  },
+  "accuracy": 0.59,
+  "macro avg": {
+    "precision": 0.5902255639097744,
+    "recall": 0.59,
+    "f1-score": 0.5897435897435898,
+    "support": 5200.0
+  },
+  "weighted avg": {
+    "precision": 0.5902255639097744,
+    "recall": 0.59,
+    "f1-score": 0.5897435897435898,
+    "support": 5200.0
+  }
+}
