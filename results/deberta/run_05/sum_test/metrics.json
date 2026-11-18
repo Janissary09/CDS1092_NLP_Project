@@ -1,0 +1,77 @@
+{
+  "accuracy": 0.8670504385964912,
+  "precision_unanswerable": 0.8639246240260917,
+  "recall_unanswerable": 0.8713450292397661,
+  "f1_unanswerable": 0.8676189609680648,
+  "macro_f1": 0.867047986494861,
+  "total_examples": 10944,
+  "correct_predictions": 9489,
+  "incorrect_predictions": 1455,
+  "dataset": "sum",
+  "dataset_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/data/processed/sum/test.csv",
+  "dataset_sha256": "c1e4bac1e1d1f27ab8a6408ac68ae710faf521822bff49a1c5958b027540b1f0",
+  "model_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/models/deberta/run_05/checkpoints/checkpoint-11172",
+  "tokenizer_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/models/deberta/run_05/checkpoints/checkpoint-11172",
+  "checkpoint_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/models/deberta/run_05/checkpoints/checkpoint-11172",
+  "recorded_training_checkpoint_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/models/deberta/run_05/checkpoints/checkpoint-11172",
+  "model_resolution": "validation_metadata_checkpoint",
+  "model_family": "deberta",
+  "selected_run": "run_05",
+  "pretrained_model_id": "microsoft/deberta-v3-base",
+  "pretrained_revision_resolved": null,
+  "best_checkpoint_validation_f1": 0.8723559445660102,
+  "selection_basis": "Fixed run and validation-selected checkpoint; no test-based selection",
+  "training_config_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/results/deberta/run_05/config.json",
+  "validation_metrics_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/results/deberta/run_05/validation_metrics.json",
+  "training_config_sha256": "fece815a119e24777518eaec41e7d7b9c72c2f0afd12a8515a9653b5110e87e4",
+  "model_config_sha256": "7804e28b5cf3f2dbde93d6ef6705b36eae96317f79077b8705485e3ccb3cad18",
+  "positive_class": "UNANSWERABLE",
+  "label_to_id": {
+    "ANSWERABLE": 0,
+    "UNANSWERABLE": 1
+  },
+  "max_length": 256,
+  "eval_batch_size": 32,
+  "seed": 42,
+  "device": "cuda",
+  "gpu_name": "NVIDIA A100 80GB PCIe",
+  "cuda_version": "12.8",
+  "model_parameter_dtype": "torch.float32",
+  "fp16": false,
+  "bf16": false,
+  "padding": "dynamic per batch",
+  "truncation": true,
+  "attention_implementation": "eager",
+  "tokenizer_class": "DebertaV2Tokenizer",
+  "software_versions": {
+    "python": "3.11.18",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.22.2",
+    "numpy": "2.4.6",
+    "pandas": "3.1.1",
+    "scikit-learn": "1.9.1",
+    "tokenizers": "0.23.3",
+    "sentencepiece": "0.2.3",
+    "protobuf": "7.36.2",
+    "huggingface-hub": "2.4.0"
+  },
+  "confusion_matrix": [
+    [
+      4721,
+      751
+    ],
+    [
+      704,
+      4768
+    ]
+  ],
+  "confusion_matrix_label_order": [
+    "ANSWERABLE",
+    "UNANSWERABLE"
+  ],
+  "confusion_matrix_axes": "rows=true, columns=predicted",
+  "prediction_rule": "argmax",
+  "evaluation_only": true,
+  "local_files_only": true,
+  "deterministic_algorithms": true
+}
