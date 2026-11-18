@@ -1,10 +1,55 @@
-# Mercury overnight encoder batch
+# Mercury encoder training batches
 
 This workflow prepares ten independent FP32 experiments. It does **not** submit anything until the explicit `--submit` command. Existing experiments, results and datasets are never replaced. Source references: `src/20_train_deberta_run02.py` and the user-reported successful five-update FP32/SDPA test `src/21_test_modernbert.py`. No existing project SLURM scripts were found.
 
+The original ten-run matrix remains the default, unchanged. A separate follow-up matrix added on **2026-11-18** prepares four additional experiments through the same trainer and SLURM job script; use its explicit `--matrix` argument below. The submission helper now validates matrix settings and supports either batch without combining their reservations or experiment lists.
+
+## Follow-up: runs 07 and 08 (2026-11-18)
+
+Configuration: `configs/training_runs07_08.json`; batch ID: `cds1092-followup-runs07-08`.
+
+| Order | Family | Run | Learning rate | Max epochs | Planned steps | Warmup steps |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | deberta | run_07 | 6e-5 | 7 | 11172 | 559 |
+| 2 | deberta | run_08 | 5e-5 | 10 | 15960 | 798 |
+| 3 | modernbert | run_07 | 6e-5 | 7 | 11172 | 559 |
+| 4 | modernbert | run_08 | 5e-5 | 10 | 15960 | 798 |
+
+Both families initialize from their **original pretrained model IDs**, not existing run checkpoints. FP32, disabled FP16/BF16, batch 32, maximum length 256, seed/data seed 42, AdamW/decay 0.01, validation UNANSWERABLE F1 selection, best restoration and patience 2 remain unchanged. Only SUM train and validation are used; no SUM test or UMWP evaluation is added. No changes to `src/22_train_encoder.py` or `slurm/train_encoder.sh` were needed.
+
+**Scheduler interpretation:** the fixed 51,072-row training split gives 1,596 optimizer steps per epoch. Seven epochs plan 11,172 steps and `ceil(0.05*11172)=559` warmup steps. Ten epochs plan 15,960 steps and 798 warmup steps. The linear scheduler therefore warms up longer and decays over a longer horizon, from the start of the experiment. Run 08 is a fresh pretrained-model training run, **not** continuation of a seven-epoch checkpoint; its early-epoch learning rates differ even when the peak learning rate matches. Early stopping can finish before the planned horizon, without rescaling that horizon.
+
+From the repository root on Mercury, first inspect the read-only plan:
+
+```bash
+conda activate cds1092
+cd ~/projects/CDS1092_NLP_Project
+python src/23_submit_training.py --matrix configs/training_runs07_08.json
+```
+
+Explicit command to submit the four-run sequence, when ready:
+
+```bash
+python src/23_submit_training.py --matrix configs/training_runs07_08.json --submit
+```
+
+Use the **same matrix argument** when inspecting or cancelling this batch:
+
+```bash
+python src/23_submit_training.py --matrix configs/training_runs07_08.json --status
+squeue -u "$USER"
+python src/23_submit_training.py --matrix configs/training_runs07_08.json --cancel
+```
+
+Four jobs use the unchanged `students`/one A100/two-hour job script and sequential `afterany` dependencies. The first follow-up job does not automatically depend on a previous batch: confirm no other work needs to finish first before submission. Within this batch a failed job does not block later jobs. The worst-case allocation request is **8 hours plus queue delays**, not a guaranteed finish time.
+
+Outputs: `models/{deberta,modernbert}/run_{07,08}/{checkpoints,best_model}/` and `results/{deberta,modernbert}/run_{07,08}/{config.json,training_history.csv,validation_metrics.json}`. State, code/matrix snapshots, separate stdout/stderr and status TSVs use `slurm_batches/cds1092-followup-runs07-08/`. The selected matrix is copied to the snapshot's conventional `configs/training_runs.json` filename so the unchanged shared trainer reads the correct frozen configuration. Submission state records its original source path and hash.
+
+The original batch's reservation is neither removed nor reused. The new batch has its own exclusive reservation; existing run_07/run_08 paths, active duplicate batch tags and repeated submissions are refused. Partial failures still require explicit inspection/recovery, never automatic overwrite or resubmission. The commands without `--matrix` continue to refer to the original ten-job batch.
+
 ## Fixed experiment matrix
 
-The ordered, machine-readable source is `configs/overnight_runs.json`.
+The ordered, machine-readable source is `configs/training_runs.json`.
 
 | Order | Family | Run | Learning rate | Maximum epochs | Planned steps | Warmup steps |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -19,7 +64,7 @@ The ordered, machine-readable source is `configs/overnight_runs.json`.
 | 9 | modernbert | run_05 | 5e-5 | 5 | 7980 | 399 |
 | 10 | modernbert | run_06 | 5e-5 | 7 | 11172 | 559 |
 
-Each job requests `students`, one `gpu:a100:1`, one task, and a maximum of `02:00:00`. CPU/RAM allocation follows site defaults; no unverified memory/CPU limits were invented. Queue access and actual runtime are not verified locally. The worst-case requested GPU time is **20 hours**, plus queue delays; “overnight” is not a promise of completion by morning. Early stopping may shorten runs. A two-hour timeout remains a failed/incomplete experiment; later jobs still proceed.
+Each job requests `students`, one `gpu:a100:1`, one task, and a maximum of `02:00:00`. CPU/RAM allocation follows site defaults; no unverified memory/CPU limits were invented. Queue access and actual runtime are not verified locally. The worst-case requested GPU time is **20 hours**, plus queue delays; completion by morning is not guaranteed. Early stopping may shorten runs. A two-hour timeout remains a failed/incomplete experiment; later jobs still proceed.
 
 ## Training protocol
 
@@ -35,7 +80,7 @@ On Mercury, from the repository root with the existing Conda installation availa
 
 ```bash
 cd ~/projects/CDS1092_NLP_Project
-python src/23_submit_overnight.py --submit
+python src/23_submit_training.py --submit
 ```
 
 The submission helper uses only Python's standard library and SLURM CLI tools. It need not import torch. If `python` is only available inside the environment, first activate `cds1092` in the login shell. Each GPU job independently initializes Conda and activates `cds1092`. It tries the exported `CONDA_EXE`, `conda` on PATH, then common installation locations. If Mercury uses a different installation, export its actual executable before submitting; do not guess or install a replacement:
@@ -47,7 +92,7 @@ export CONDA_EXE=/actual/conda/installation/bin/conda
 The script is submitted through `sbatch`, so executable permission on the shell file is not required. Files must have LF line endings. To inspect the matrix without submitting:
 
 ```bash
-python src/23_submit_overnight.py
+python src/23_submit_training.py
 bash -n slurm/train_encoder.sh
 ```
 
@@ -56,9 +101,9 @@ No shell/SLURM commands in this documentation were used to launch jobs during im
 ## Queue, results and cancellation
 
 ```bash
-python src/23_submit_overnight.py --status
+python src/23_submit_training.py --status
 squeue -u "$USER"
-python src/23_submit_overnight.py --cancel
+python src/23_submit_training.py --cancel
 ```
 
 The status helper prints the manifest, active batch-tagged job IDs, and sacct accounting when available. The cancel helper requests cancellation **only for active jobs with this batch's exact comment tag**, including a job accepted immediately before a submission-process crash. It does not delete artifacts or clear the permanent reservation. For a confirmed individual ID, ordinary `scancel JOB_ID` is also possible. No cancellation is performed automatically now.
@@ -69,7 +114,7 @@ Operational files are created on explicit submission under:
 slurm_batches/cds1092-overnight-v1/
   submission.json                   Job IDs, dependency chain, timestamps, source hashes
   snapshot/src/22_train_encoder.py   Submitted code snapshot
-  snapshot/configs/overnight_runs.json
+  snapshot/configs/training_runs.json
   logs/<family>_<run>-<jobid>.out
   logs/<family>_<run>-<jobid>.err
   status/<family>_<run>_<jobid>.tsv   Start/end UTC, exit status, elapsed seconds
@@ -102,8 +147,22 @@ The EXIT/TERM/INT traps record normal exits, errors and the requested pre-timeou
 Python compilation and offline mocked submission tests can be run without training or SLURM:
 
 ```bash
-python -B -m unittest discover -s tests -p test_overnight_workflow.py
+python -B -m unittest discover -s tests -p test_training_workflow.py
 bash -n slurm/train_encoder.sh
 ```
 
 Tests intercept every SLURM call, use temporary filesystem fixtures, and check chaining, hold/release order, frozen snapshots, overwrite refusal, duplicate protection and partial-submission recovery. Syntax/static checks do not establish live Mercury permissions, package loading or full training stability.
+
+## Filename migration and existing job records
+
+Workflow entry points now use general-purpose training names:
+
+- `src/23_submit_training.py`
+- `tests/test_training_workflow.py` (software unit tests; the tests/ directory is unchanged)
+- `configs/training_runs.json` (the original ten experiments, unchanged contents)
+- `configs/training_runs07_08.json` (the four additional experiments, unchanged contents)
+- `slurm/README_training.md` (this document)
+
+The prior workflow guide was actually stored as slurm/README.md locally; it is now at this path. The shared trainer changes only its manifest filename and descriptive messages; model initialization, optimization and artifact saving remain unchanged.
+
+**Operational identity is deliberately preserved:** the original batch ID `cds1092-overnight-v1` remains inside its renamed configuration. Renaming this ID would evade existing reservations/comment tags and could allow duplicate jobs. The follow-up ID `cds1092-followup-runs07-08` is also unchanged. These strings are historical identifiers, not workflow filenames. Existing slurm_batches directories, submission.json records, logs, result provenance and previously submitted code/config snapshots must never be rewritten to adopt the new filenames. Already queued jobs continue to use their original snapshots. New snapshots use configs/training_runs.json, containing the selected matrix. Status/cancel commands still locate the same jobs and reservations using the preserved IDs.

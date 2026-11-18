@@ -1,7 +1,7 @@
-"""Train one fixed overnight matrix entry; SUM train/validation only.
+"""Train one configured training matrix entry; SUM train/validation only.
 
 Usage: python src/22_train_encoder.py --model deberta --run run_03
-Configuration: configs/overnight_runs.json. No existing experiment is resumed or
+Configuration: configs/training_runs.json. No existing experiment is resumed or
 replaced. ModernBERT retains the tested FP32 SDPA backend (no Flash Attention).
 """
 
@@ -22,7 +22,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 CODE_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = Path(os.environ.get("CDS1092_PROJECT_ROOT", str(CODE_ROOT))).resolve()
 DATA_DIR = PROJECT_ROOT / "data/processed/sum"
-MANIFEST_PATH = CODE_ROOT / "configs/overnight_runs.json"
+MANIFEST_PATH = CODE_ROOT / "configs/training_runs.json"
 LABEL_TO_ID = {"ANSWERABLE": 0, "UNANSWERABLE": 1}
 
 
@@ -69,7 +69,7 @@ def main():
     entries = [r for r in manifest["runs"]
                if r["model_family"] == args.model and r["run_name"] == args.run]
     if len(entries) != 1:
-        raise ValueError("Run is not a unique entry in the overnight matrix.")
+        raise ValueError("Run is not a unique entry in the training matrix.")
     entry = entries[0]
     CONFIG = {**manifest["shared"], **manifest["models"][args.model], **entry}
     run_model_dir = PROJECT_ROOT / "models" / args.model / args.run
@@ -278,7 +278,7 @@ def main():
     # Fail rather than silently run the experiment with reduced-precision weights.
     if any(parameter.is_floating_point() and parameter.dtype != torch.float32
            for parameter in model.parameters()):
-        raise RuntimeError("Overnight runs require FP32 parameters throughout training setup.")
+        raise RuntimeError("Training runs require FP32 parameters throughout training setup.")
 
     # Validation runs each epoch. Stop after two evaluations without an F1
     # improvement; Trainer reloads the best checkpoint when training finishes.

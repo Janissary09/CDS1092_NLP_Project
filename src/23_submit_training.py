@@ -1,4 +1,4 @@
-"""Inspect or explicitly submit the fixed ten-job Mercury sequence.
+"""Inspect or explicitly submit a configured sequential Mercury batch.
 
 Default: read-only plan. --submit is the only submission action; --status and
 --cancel operate on this batch's recorded/tagged jobs. No training runs locally.
@@ -10,6 +10,7 @@ import argparse
 import getpass
 import hashlib
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -18,7 +19,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MATRIX = ROOT / "configs/overnight_runs.json"
+MATRIX = ROOT / "configs/training_runs.json"
 TRAINER = ROOT / "src/22_train_encoder.py"
 JOB_SCRIPT = ROOT / "slurm/train_encoder.sh"
 STATE_ROOT = ROOT / "slurm_batches"
@@ -28,15 +29,38 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def read_plan():
-    plan = json.loads(MATRIX.read_text(encoding="utf-8"))
+def read_plan(matrix=None):
+    matrix = MATRIX if matrix is None else Path(matrix)
+    plan = json.loads(matrix.read_text(encoding="utf-8"))
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", plan["batch_id"]):
         raise ValueError("Unsafe batch ID.")
-    expected = [("deberta", f"run_{i:02d}") for i in range(3, 7)]
-    expected += [("modernbert", f"run_{i:02d}") for i in range(1, 7)]
-    actual = [(run["model_family"], run["run_name"]) for run in plan["runs"]]
-    if actual != expected:
-        raise ValueError("Expected the fixed four-DeBERTa/six-ModernBERT sequence.")
+    required_shared = {"model_revision": "main", "max_length": 256, "batch_size": 32,
+                       "weight_decay": 0.01, "warmup_ratio": 0.05, "random_seed": 42,
+                       "positive_class": "UNANSWERABLE", "positive_label_id": 1,
+                       "early_stopping_patience": 2, "best_model_metric": "validation_f1"}
+    if plan["shared"] != required_shared:
+        raise ValueError("Shared settings differ from the established FP32 experiment protocol.")
+    expected_models = {"deberta": "microsoft/deberta-v3-base",
+                       "modernbert": "answerdotai/ModernBERT-base"}
+    if not plan["runs"]:
+        raise ValueError("The experiment matrix is empty.")
+    seen = set()
+    for run in plan["runs"]:
+        if set(run) != {"model_family", "run_name", "learning_rate", "max_epochs"}:
+            raise ValueError("Unexpected run configuration fields.")
+        family, name = run["model_family"], run["run_name"]
+        if family not in expected_models or not re.fullmatch(r"run_[0-9]{2}", name):
+            raise ValueError("Unsafe or unsupported model/run identity.")
+        if plan["models"][family]["model_name"] != expected_models[family]:
+            raise ValueError("Experiments must initialize from the original pretrained model.")
+        if (family, name) in seen:
+            raise ValueError("Duplicate experiment in matrix.")
+        seen.add((family, name))
+        lr, epochs = run["learning_rate"], run["max_epochs"]
+        if isinstance(lr, bool) or not isinstance(lr, (int, float)) or not math.isfinite(lr) or lr <= 0:
+            raise ValueError("Learning rate must be finite and positive.")
+        if type(epochs) is not int or epochs <= 0:
+            raise ValueError("Maximum epochs must be a positive integer.")
     return plan
 
 
@@ -71,7 +95,8 @@ def write_state(directory, state):
     temporary.replace(directory / "submission.json")
 
 
-def submit(plan):
+def submit(plan, matrix=None):
+    matrix = MATRIX if matrix is None else Path(matrix)
     for tool in ("sbatch", "scontrol", "squeue", "scancel"):
         if shutil.which(tool) is None:
             raise RuntimeError(f"Required Mercury command missing: {tool}")
@@ -85,7 +110,7 @@ def submit(plan):
             path = ROOT / parent / run["model_family"] / run["run_name"]
             if path.exists():
                 raise FileExistsError(f"Experiment path already exists: {path}")
-    for file in (MATRIX, TRAINER, JOB_SCRIPT,
+    for file in (matrix, TRAINER, JOB_SCRIPT,
                  ROOT / "data/processed/sum/train.csv", ROOT / "data/processed/sum/validation.csv"):
         if not file.is_file():
             raise FileNotFoundError(file)
@@ -99,11 +124,12 @@ def submit(plan):
     (snapshot / "src").mkdir(parents=True)
     (snapshot / "configs").mkdir()
     shutil.copyfile(TRAINER, snapshot / "src/22_train_encoder.py")
-    shutil.copyfile(MATRIX, snapshot / "configs/overnight_runs.json")
+    shutil.copyfile(matrix, snapshot / "configs/training_runs.json")
     state = {"batch_id": plan["batch_id"], "tag": tag, "root": str(ROOT),
              "created_utc": now(), "phase": "submitting_held", "jobs": [],
+             "matrix_path": str(matrix),
              "sha256": {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
-                        for p in (MATRIX, TRAINER, JOB_SCRIPT)}}
+                        for p in (matrix, TRAINER, JOB_SCRIPT)}}
     write_state(directory, state)
     previous = None
     try:
@@ -141,7 +167,7 @@ def submit(plan):
         print("Submission incomplete. Some jobs may be held or released. "
               "Use --status and --cancel; do not delete the reservation or resubmit.", flush=True)
         raise
-    print(f"Submitted ten sequential jobs. State/logs: {directory}")
+    print(f"Submitted {len(plan['runs'])} sequential jobs. State/logs: {directory}")
 
 
 def inspect_or_cancel(plan, cancel=False):
@@ -167,21 +193,29 @@ def inspect_or_cancel(plan, cancel=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--matrix", type=Path, default=MATRIX,
+                        help="Matrix JSON path, relative to the repository root; default is the original batch.")
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--submit", action="store_true")
     action.add_argument("--status", action="store_true")
     action.add_argument("--cancel", action="store_true")
     args = parser.parse_args()
-    plan = read_plan()
+    matrix = args.matrix if args.matrix.is_absolute() else ROOT / args.matrix
+    matrix = matrix.resolve()
+    # Source hashes are recorded relative to the repository; external matrices
+    # are deliberately unsupported so snapshots remain self-contained.
+    if not matrix.is_relative_to(ROOT.resolve()):
+        parser.error("--matrix must be inside the repository.")
+    plan = read_plan(matrix)
     if args.submit:
-        submit(plan)
+        submit(plan, matrix)
     elif args.status or args.cancel:
         inspect_or_cancel(plan, cancel=args.cancel)
     else:
         for run in plan["runs"]:
             print(run["model_family"], run["run_name"],
                   f"LR={run['learning_rate']}", f"max_epochs={run['max_epochs']}")
-        print("Read-only plan. Explicit submission: python src/23_submit_overnight.py --submit")
+        print("Read-only plan. To submit, repeat this command with --submit and the same --matrix.")
 
 
 if __name__ == "__main__":

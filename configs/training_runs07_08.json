@@ -1,0 +1,53 @@
+{
+  "batch_id": "cds1092-followup-runs07-08",
+  "shared": {
+    "model_revision": "main",
+    "max_length": 256,
+    "batch_size": 32,
+    "weight_decay": 0.01,
+    "warmup_ratio": 0.05,
+    "random_seed": 42,
+    "positive_class": "UNANSWERABLE",
+    "positive_label_id": 1,
+    "early_stopping_patience": 2,
+    "best_model_metric": "validation_f1"
+  },
+  "models": {
+    "deberta": {
+      "model_name": "microsoft/deberta-v3-base",
+      "model_type": "deberta-v2"
+    },
+    "modernbert": {
+      "model_name": "answerdotai/ModernBERT-base",
+      "model_type": "modernbert",
+      "attention_implementation": "sdpa",
+      "reference_compile": false
+    }
+  },
+  "runs": [
+    {
+      "model_family": "deberta",
+      "run_name": "run_07",
+      "learning_rate": 6e-05,
+      "max_epochs": 7
+    },
+    {
+      "model_family": "deberta",
+      "run_name": "run_08",
+      "learning_rate": 5e-05,
+      "max_epochs": 10
+    },
+    {
+      "model_family": "modernbert",
+      "run_name": "run_07",
+      "learning_rate": 6e-05,
+      "max_epochs": 7
+    },
+    {
+      "model_family": "modernbert",
+      "run_name": "run_08",
+      "learning_rate": 5e-05,
+      "max_epochs": 10
+    }
+  ]
+}
