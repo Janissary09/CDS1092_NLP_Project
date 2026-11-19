@@ -36,7 +36,7 @@ if [[ ! -x "$conda_executable" ]]; then
     exit 1
 fi
 eval "$("$conda_executable" shell.bash hook)"
-conda activate cds1092
+conda activate cds1092_apertus
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 # exec lets SLURM's B:TERM reach the evaluator directly.
