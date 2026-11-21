@@ -66,7 +66,11 @@ def gpu_device_map(layer_count):
     }
 
 
-def load_generator(torch, transformers, device_map):
+def log_generation(event, details):
+    print(json.dumps({"event": event, **details}), file=sys.stderr, flush=True)
+
+
+def load_generator(torch, transformers, device_map, *, diagnostics=False):
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
     if not tokenizer.chat_template:
         raise ValueError("The local Llama tokenizer is missing its native chat template")
@@ -107,6 +111,16 @@ def load_generator(torch, transformers, device_map):
     if pad is None:
         pad = tokenizer.eos_token_id
     input_device = model.get_input_embeddings().weight.device
+    output_weights = model.get_output_embeddings().weight
+    vocab_ids = set(tokenizer.get_vocab().values())
+    vocab_bounds = {
+        "tokenizer_vocab_base_size": tokenizer.vocab_size,
+        "tokenizer_vocab_id_count": len(vocab_ids),
+        "tokenizer_min_id": min(vocab_ids),
+        "tokenizer_max_id": max(vocab_ids),
+        "model_config_vocab_size": model.config.vocab_size,
+        "lm_head_vocab_size": output_weights.shape[0],
+    }
     generation = transformers.GenerationConfig(
         do_sample=False, num_beams=1, max_new_tokens=shared.MAX_NEW_TOKENS,
         eos_token_id=eos, pad_token_id=pad, use_cache=True,
@@ -119,11 +133,60 @@ def load_generator(torch, transformers, device_map):
             add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt",
         ).to(input_device)
         input_length = inputs["input_ids"].shape[-1]
-        ids = model.generate(**inputs, generation_config=generation)[0, input_length:].tolist()
-        terminated = bool(ids and ids[-1] in eos_ids)
-        raw = tokenizer.decode(ids[:-1] if terminated else ids,
-                               skip_special_tokens=False, clean_up_tokenization_spaces=False)
-        return raw, ids, len(ids) == shared.MAX_NEW_TOKENS and not terminated
+        options = {"return_dict_in_generate": True, "output_logits": True} if diagnostics else {}
+        output = model.generate(**inputs, generation_config=generation, **options)
+        sequences = output.sequences if diagnostics else output
+        ids = sequences[0, input_length:].tolist()
+        outside_uint32 = [
+            index for index, token_id in enumerate(ids)
+            if type(token_id) is int and not 0 <= token_id < 2**32
+        ]
+        invalid_positions = [
+            index for index, token_id in enumerate(ids)
+            if type(token_id) is not int or token_id not in vocab_ids
+            or not 0 <= token_id < min(output_weights.shape[0], 2**32)
+        ]
+        terminated = bool(ids and type(ids[-1]) is int and ids[-1] in eos_ids)
+        hit_limit = len(ids) == shared.MAX_NEW_TOKENS and not terminated
+        details = {
+            **vocab_bounds, "generated_token_ids": ids, "invalid_token_positions": invalid_positions,
+            "outside_uint32_positions": outside_uint32,
+            "tokenizer_class": type(tokenizer).__name__, "tokenizer_is_fast": tokenizer.is_fast,
+            "input_token_count": input_length, "input_device": str(input_device),
+            "lm_head_device": str(output_weights.device),
+            "sequence_dtype": str(sequences.dtype), "sequence_device": str(sequences.device),
+            "attention_implementation": model.config._attn_implementation,
+            "do_sample": False, "num_beams": 1, "use_cache": True,
+            "max_new_tokens": shared.MAX_NEW_TOKENS, "hit_token_limit": hit_limit,
+            "eos_token_ids": sorted(eos_ids), "pad_token_id": pad, "ended_with_eos": terminated,
+        }
+        if diagnostics or invalid_positions:
+            log_generation("llama_before_decode", details)
+        nonfinite = []
+        if diagnostics:
+            argmax_ids = []
+            for step, logits in enumerate(output.logits):
+                values = logits[0].float().cpu()
+                if torch.isfinite(values).all().item():
+                    argmax_ids.append(values.argmax().item())
+                else:
+                    nonfinite.append(step)
+                    argmax_ids.append(None)
+            log_generation("llama_generation_logits", {
+                "raw_logits_cpu_argmax_ids": argmax_ids, "nonfinite_logit_steps": nonfinite,
+                "cache_class": type(output.past_key_values).__name__,
+            })
+        if invalid_positions:
+            raise RuntimeError("Llama generated token IDs outside the tokenizer vocabulary or LM head range")
+        if nonfinite:
+            raise RuntimeError("Llama generated non-finite logits; see the per-step diagnostics")
+        try:
+            raw = tokenizer.decode(ids[:-1] if terminated else ids,
+                                   skip_special_tokens=False, clean_up_tokenization_spaces=False)
+        except OverflowError:
+            log_generation("llama_decode_overflow", details)
+            raise
+        return raw, ids, hit_limit
 
     return generate
 
@@ -131,7 +194,7 @@ def load_generator(torch, transformers, device_map):
 def smoke_test(torch, transformers, gpus, device_map):
     for index in range(len(gpus)):
         torch.cuda.reset_peak_memory_stats(index)
-    generate = load_generator(torch, transformers, device_map)
+    generate = load_generator(torch, transformers, device_map, diagnostics=True)
     for index in range(len(gpus)):
         torch.cuda.synchronize(index)
     load_peaks = [torch.cuda.max_memory_allocated(index) for index in range(len(gpus))]

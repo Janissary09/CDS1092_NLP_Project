@@ -77,7 +77,7 @@ class LlamaEvaluationTests(unittest.TestCase):
         self.assertEqual(devices["model.embed_tokens"], 0)
         self.assertEqual(devices["lm_head"], 1)
 
-    def test_native_chat_and_generation(self):
+    def generator_fixture(self):
         torch = SimpleNamespace(bfloat16="bf16", device=lambda name: name,
                                 inference_mode=lambda: lambda function: function)
         transformers = SimpleNamespace(AutoTokenizer=Mock(), LlamaForCausalLM=Mock(),
@@ -90,6 +90,8 @@ class LlamaEvaluationTests(unittest.TestCase):
             SimpleNamespace(device="cuda:0", dtype="bf16"), SimpleNamespace(device="cuda:1", dtype="bf16"),
         ]
         model.get_input_embeddings.return_value.weight.device = "cuda:0"
+        model.get_output_embeddings.return_value.weight = SimpleNamespace(shape=(128256, 8), device="cuda:1")
+        model.config = SimpleNamespace(vocab_size=128256, _attn_implementation="sdpa")
         model.generation_config.eos_token_id = [128001, 128009]
         generated = MagicMock()
         generated.__getitem__.return_value.tolist.return_value = [15, 128009]
@@ -99,10 +101,16 @@ class LlamaEvaluationTests(unittest.TestCase):
         tokenizer.convert_tokens_to_ids.return_value = [128000, 128001, 128006, 128007, 128008, 128009]
         tokenizer.pad_token_id = None
         tokenizer.eos_token_id = 128009
+        tokenizer.is_fast = True
+        tokenizer.vocab_size = 128000
+        tokenizer.get_vocab.return_value = {"example": 15, "other": 1, "<|eot_id|>": 128009}
         inputs = {"input_ids": SimpleNamespace(shape=(1, 3)), "attention_mask": object()}
         tokenizer.apply_chat_template.return_value.to.return_value = inputs
         tokenizer.decode.return_value = "<|start_header_id|>ANSWERABLE"
+        return torch, transformers, model, tokenizer, generated, inputs, loading_info
 
+    def test_native_chat_and_generation(self):
+        torch, transformers, model, tokenizer, generated, inputs, loading_info = self.generator_fixture()
         device_map = evaluator.gpu_device_map(80)
         generate = evaluator.load_generator(torch, transformers, device_map)
         prompt = protocol.PROMPT.format(question="How many?")
@@ -149,6 +157,61 @@ class LlamaEvaluationTests(unittest.TestCase):
         tokenizer.convert_tokens_to_ids.return_value = [0] * 6
         with self.assertRaisesRegex(ValueError, "special-token IDs"):
             evaluator.load_generator(torch, transformers, device_map)
+
+    def test_rejects_out_of_vocabulary_ids_before_decode(self):
+        torch, transformers, _, tokenizer, sequences, _, _ = self.generator_fixture()
+        generate = evaluator.load_generator(torch, transformers, evaluator.gpu_device_map(80))
+        for invalid in (-1, 2**40, 128256, 14, 15.0):
+            with self.subTest(token_id=invalid), patch("builtins.print") as output:
+                ids = [15, invalid, 128009]
+                sequences.__getitem__.return_value.tolist.return_value = ids
+                with self.assertRaisesRegex(RuntimeError, "outside the tokenizer vocabulary"):
+                    generate("prompt")
+                tokenizer.decode.assert_not_called()
+                report = json.loads(output.call_args.args[0])
+                self.assertEqual(report["event"], "llama_before_decode")
+                self.assertEqual(report["generated_token_ids"], ids)
+                self.assertEqual(report["invalid_token_positions"], [1])
+                self.assertEqual(report["outside_uint32_positions"], [1] if invalid in (-1, 2**40) else [])
+                self.assertEqual(report["tokenizer_max_id"], 128009)
+                self.assertEqual(report["lm_head_vocab_size"], 128256)
+                self.assertTrue(output.call_args.kwargs["flush"])
+
+    def test_smoke_logs_valid_ids_and_logits_before_decoder_overflow(self):
+        torch, transformers, model, tokenizer, sequences, _, _ = self.generator_fixture()
+        values = Mock()
+        values.argmax.return_value.item.return_value = 15
+        logits = MagicMock()
+        logits.__getitem__.return_value.float.return_value.cpu.return_value = values
+        torch.isfinite = Mock()
+        torch.isfinite.return_value.all.return_value.item.return_value = True
+        model.generate.return_value = SimpleNamespace(
+            sequences=sequences, logits=(logits,), past_key_values=None,
+        )
+        generate = evaluator.load_generator(torch, transformers, evaluator.gpu_device_map(80), diagnostics=True)
+        error = OverflowError("number too large to fit in target type")
+        with patch("builtins.print") as output:
+            def fail_decode(*args, **kwargs):
+                pre_decode, logit_report = [json.loads(call.args[0]) for call in output.call_args_list]
+                self.assertEqual(pre_decode["generated_token_ids"], [15, 128009])
+                self.assertEqual(pre_decode["invalid_token_positions"], [])
+                self.assertEqual(logit_report["raw_logits_cpu_argmax_ids"], [15])
+                raise error
+
+            tokenizer.decode.side_effect = fail_decode
+            with self.assertRaises(OverflowError) as raised:
+                generate("prompt")
+            self.assertIs(raised.exception, error)
+            self.assertEqual(json.loads(output.call_args.args[0])["event"], "llama_decode_overflow")
+        self.assertTrue(model.generate.call_args.kwargs["output_logits"])
+
+        torch.isfinite.return_value.all.return_value.item.return_value = False
+        tokenizer.decode.reset_mock()
+        with patch("builtins.print") as output:
+            with self.assertRaisesRegex(RuntimeError, "non-finite logits"):
+                generate("prompt")
+            self.assertEqual(json.loads(output.call_args.args[0])["nonfinite_logit_steps"], [0])
+        tokenizer.decode.assert_not_called()
 
     def test_smoke_reports_memory_on_both_gpus(self):
         torch = SimpleNamespace(cuda=Mock())
