@@ -3,9 +3,11 @@
 import argparse
 from contextlib import closing
 import hashlib
+from heapq import nlargest
 from importlib.metadata import distribution, version
 from importlib.util import module_from_spec, spec_from_file_location
 import json
+import math
 from pathlib import Path
 import signal
 import sys
@@ -83,7 +85,36 @@ class InvalidGeneratedTokens(RuntimeError):
         self.hit_limit = hit_limit
 
 
-def load_generator(torch, transformers, device_map):
+def synchronize_both_gpus(torch):
+    for index in (0, 1):
+        torch.cuda.synchronize(index)
+
+
+def inspect_forward_logits(torch, model, inputs):
+    # Match generate's final-position projection without entering its decoding loop.
+    logits = model(**inputs, use_cache=True, logits_to_keep=1, return_dict=True).logits
+    synchronize_both_gpus(torch)
+    final = logits[0, -1].float()
+    cuda_argmax = final.argmax()
+    synchronize_both_gpus(torch)
+    cpu_logits = final.cpu()
+    values = cpu_logits.tolist()
+    finite = [(index, value) for index, value in enumerate(values) if math.isfinite(value)]
+    top = nlargest(10, finite, key=lambda item: item[1])
+    return {
+        "logits_shape": list(logits.shape), "logits_dtype": str(logits.dtype),
+        "logits_device": str(logits.device), "final_position_shape": list(final.shape),
+        "attention_implementation": model.config._attn_implementation,
+        "nan_count": sum(math.isnan(value) for value in values),
+        "inf_count": sum(math.isinf(value) for value in values),
+        "finite_min": min((value for _, value in finite), default=None),
+        "finite_max": top[0][1] if top else None,
+        "top_10_finite": [{"token_id": index, "score": score} for index, score in top],
+        "cpu_argmax_id": cpu_logits.argmax().item(), "cuda_argmax_id": cuda_argmax.item(),
+    }
+
+
+def load_generator(torch, transformers, device_map, *, forward_diagnostic=False):
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
     if not tokenizer.chat_template:
         raise ValueError("The local Llama tokenizer is missing its native chat template")
@@ -146,8 +177,20 @@ def load_generator(torch, transformers, device_map):
             add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt",
         ).to(input_device)
         input_length = inputs["input_ids"].shape[-1]
+        if forward_diagnostic:
+            forward = inspect_forward_logits(torch, model, inputs)
+            log_generation("llama_direct_forward", forward)
         sequences = model.generate(**inputs, generation_config=generation)
+        if forward_diagnostic:
+            synchronize_both_gpus(torch)
         ids = sequences[0, input_length:].tolist()
+        if forward_diagnostic:
+            log_generation("llama_plain_generation_comparison", {
+                "generated_token_ids": ids, "first_generated_id": ids[0] if ids else None,
+                "matches_forward_cpu_argmax": bool(ids and ids[0] == forward["cpu_argmax_id"]),
+                "matches_forward_cuda_argmax": bool(ids and ids[0] == forward["cuda_argmax_id"]),
+                "max_new_tokens": shared.MAX_NEW_TOKENS,
+            })
         outside_uint32 = [
             index for index, token_id in enumerate(ids)
             if type(token_id) is int and not 0 <= token_id < 2**32
@@ -183,6 +226,18 @@ def load_generator(torch, transformers, device_map):
         return raw, ids, hit_limit
 
     return generate
+
+
+def forward_diagnostic_test(torch, transformers, device_map):
+    generate = load_generator(torch, transformers, device_map, forward_diagnostic=True)
+    question, expected = SMOKE_PROBES[0]
+    raw, ids, hit_limit = generate(shared.PROMPT.format(question=question))
+    prediction = shared.parse_label(raw)
+    log_generation("llama_forward_diagnostic_prediction", {
+        "raw_response": raw, "prediction": prediction, "expected": expected,
+        "hit_token_limit": hit_limit,
+    })
+    return int(not ids or prediction != expected or hit_limit)
 
 
 def smoke_test(torch, transformers, gpus, device_map):
@@ -230,10 +285,11 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dataset", choices=shared.DATASETS)
     mode.add_argument("--smoke-test", action="store_true")
+    mode.add_argument("--diagnose-forward", action="store_true")
     parser.add_argument("--run-id", choices=["run_01"])
     args = parser.parse_args()
     if (args.dataset is None) == (args.run_id is not None):
-        parser.error("Use --smoke-test alone or --dataset with --run-id run_01")
+        parser.error("Use --smoke-test or --diagnose-forward alone, or --dataset with --run-id run_01")
 
     import torch
     import transformers
@@ -253,7 +309,7 @@ def main():
     accelerate_version = version("accelerate")
     config = load_config()
     device_map = gpu_device_map(config["num_hidden_layers"])
-    if args.smoke_test:
+    if args.smoke_test or args.diagnose_forward:
         print(json.dumps({
             "torch_version": str(torch.__version__), "cuda_version": torch.version.cuda,
             "transformers_version": transformers.__version__,
@@ -262,6 +318,8 @@ def main():
             "tokenizers_version": version("tokenizers"), "safetensors_version": version("safetensors"),
             "device_map": device_map,
         }, indent=2), file=sys.stderr)
+        if args.diagnose_forward:
+            return forward_diagnostic_test(torch, transformers, device_map)
         return smoke_test(torch, transformers, gpus, device_map)
 
     rows, dataset_hash = shared.load_dataset(ROOT, args.dataset)

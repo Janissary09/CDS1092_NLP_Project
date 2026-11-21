@@ -190,6 +190,56 @@ class LlamaEvaluationTests(unittest.TestCase):
         self.assertEqual(report["generated_token_ids"], [15, 128009])
         self.assertEqual(report["invalid_token_positions"], [])
 
+    def test_forward_diagnostic_compares_direct_logits_with_plain_generation(self):
+        torch, transformers, model, tokenizer, sequences, inputs, _ = self.generator_fixture()
+        torch.cuda = Mock()
+        logits = MagicMock(shape=(1, 1, 13), dtype="bf16", device="cuda:0")
+        final = logits.__getitem__.return_value.float.return_value
+        values = [float("nan"), float("inf"), float("-inf"), *range(10)]
+        cpu = final.cpu.return_value
+        cpu.tolist.return_value = values
+        cpu.argmax.return_value.item.return_value = 0
+        final.argmax.return_value.item.return_value = 12
+        model.return_value = SimpleNamespace(logits=logits)
+        tokenizer.decode.return_value = "!!!!!!!!!!!!!!!!"
+        sequences.__getitem__.return_value.tolist.return_value = [0] * 16
+        tokenizer.get_vocab.return_value["!"] = 0
+
+        def read_scores():
+            self.assertEqual([call.args for call in torch.cuda.synchronize.call_args_list],
+                             [(0,), (1,), (0,), (1,)])
+            model.generate.assert_not_called()
+            return values
+
+        cpu.tolist.side_effect = read_scores
+        with patch.object(evaluator, "log_generation") as log:
+            status = evaluator.forward_diagnostic_test(torch, transformers, evaluator.gpu_device_map(80))
+        self.assertEqual(status, 1)
+        transformers.LlamaForCausalLM.from_pretrained.assert_called_once()
+        self.assertEqual(model.call_args.kwargs, {
+            **inputs, "use_cache": True, "logits_to_keep": 1, "return_dict": True,
+        })
+        self.assertEqual(model.call_count, 1)
+        model.generate.assert_called_once_with(
+            **inputs, generation_config=transformers.GenerationConfig.return_value,
+        )
+        tokenizer.apply_chat_template.assert_called_once_with(
+            [{"role": "user", "content": protocol.PROMPT.format(question=evaluator.SMOKE_PROBES[0][0])}],
+            add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt",
+        )
+        self.assertEqual([call.args for call in torch.cuda.synchronize.call_args_list], [(0,), (1,)] * 3)
+        forward, comparison, prediction = [call.args[1] for call in log.call_args_list]
+        self.assertEqual((forward["nan_count"], forward["inf_count"]), (1, 2))
+        self.assertEqual((forward["logits_shape"], forward["logits_dtype"]), ([1, 1, 13], "bf16"))
+        self.assertEqual((forward["finite_min"], forward["finite_max"]), (0, 9))
+        self.assertEqual(forward["top_10_finite"],
+                         [{"token_id": i, "score": i - 3} for i in range(12, 2, -1)])
+        self.assertEqual(comparison["generated_token_ids"], [0] * 16)
+        self.assertTrue(comparison["matches_forward_cpu_argmax"])
+        self.assertFalse(comparison["matches_forward_cuda_argmax"])
+        self.assertTrue(prediction["hit_token_limit"])
+        self.assertEqual(prediction["prediction"], "INVALID")
+
     def test_smoke_loads_once_and_reports_both_labels_and_gpu_peaks(self):
         torch = SimpleNamespace(cuda=Mock())
         torch.cuda.max_memory_allocated.side_effect = [65 * 1024**3, 66 * 1024**3, 67 * 1024**3, 68 * 1024**3]
