@@ -1,7 +1,7 @@
 """Run Llama 3.3 70B Instruct zero-shot classification on one complete benchmark."""
 
 import argparse
-from contextlib import closing
+from contextlib import ExitStack, closing
 import hashlib
 from heapq import nlargest
 from importlib.metadata import distribution, version
@@ -114,7 +114,60 @@ def inspect_forward_logits(torch, model, inputs):
     }
 
 
-def load_generator(torch, transformers, device_map, *, forward_diagnostic=False):
+def activation_statistics(tensor):
+    values = tensor.detach().cpu().float().flatten().tolist()
+    finite = [value for value in values if math.isfinite(value)]
+    return {
+        "shape": list(tensor.shape), "dtype": str(tensor.dtype), "device": str(tensor.device),
+        "nan_count": sum(math.isnan(value) for value in values),
+        "inf_count": sum(math.isinf(value) for value in values),
+        "zero_count": values.count(0.0),
+        "finite_min": min(finite, default=None), "finite_max": max(finite, default=None),
+        "finite_abs_mean": sum(map(abs, finite)) / len(finite) if finite else None,
+    }
+
+
+def inspect_layer_activations(torch, model, inputs):
+    """Job 1811 diagnostic only. Retain selected outputs for post-forward inspection."""
+    decoder = model.model
+    checkpoints = (
+        ("model.embed_tokens", decoder.embed_tokens),
+        *((f"model.layers.{index}", decoder.layers[index]) for index in (0, 39, 40, 79)),
+        ("model.norm", decoder.norm),
+        ("lm_head", model.lm_head),
+    )
+    activations = {}
+
+    def capture(name):
+        def hook(_module, _args, output):
+            activations[name] = output[0] if isinstance(output, tuple) else output
+        return hook
+
+    with ExitStack() as hooks:
+        for name, module in checkpoints:
+            hooks.callback(module.register_forward_hook(capture(name)).remove)
+        # Keep the same final-position head projection as the Job 1811 forward probe.
+        model(**inputs, use_cache=True, logits_to_keep=1, return_dict=True)
+
+    synchronize_both_gpus(torch)
+    for name, _ in checkpoints:
+        if name not in activations:
+            raise RuntimeError(f"Missing activation from {name}")
+        log_generation("llama_layer_activation", {"module": name, **activation_statistics(activations[name])})
+
+    # Scan the entire parameter tensors on their resident devices; transfer counts only.
+    for name, module in checkpoints:
+        for suffix, weight in module.named_parameters():
+            size = weight.numel()
+            nonzero = torch.count_nonzero(weight).item()
+            log_generation("llama_layer_parameter", {
+                "parameter": f"{name}.{suffix}", "shape": list(weight.shape),
+                "dtype": str(weight.dtype), "device": str(weight.device),
+                "zero_count": size - nonzero, "all_zero": size > 0 and nonzero == 0,
+            })
+
+
+def load_generator(torch, transformers, device_map, *, forward_diagnostic=False, activation_diagnostic=False):
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
     if not tokenizer.chat_template:
         raise ValueError("The local Llama tokenizer is missing its native chat template")
@@ -176,6 +229,9 @@ def load_generator(torch, transformers, device_map, *, forward_diagnostic=False)
             [{"role": "user", "content": prompt}],
             add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt",
         ).to(input_device)
+        if activation_diagnostic:
+            inspect_layer_activations(torch, model, inputs)
+            return
         input_length = inputs["input_ids"].shape[-1]
         if forward_diagnostic:
             forward = inspect_forward_logits(torch, model, inputs)
@@ -286,10 +342,11 @@ def main():
     mode.add_argument("--dataset", choices=shared.DATASETS)
     mode.add_argument("--smoke-test", action="store_true")
     mode.add_argument("--diagnose-forward", action="store_true")
+    mode.add_argument("--diagnose-activations", action="store_true")
     parser.add_argument("--run-id", choices=["run_01"])
     args = parser.parse_args()
     if (args.dataset is None) == (args.run_id is not None):
-        parser.error("Use --smoke-test or --diagnose-forward alone, or --dataset with --run-id run_01")
+        parser.error("Use a smoke or diagnostic mode alone, or --dataset with --run-id run_01")
 
     import torch
     import transformers
@@ -309,7 +366,7 @@ def main():
     accelerate_version = version("accelerate")
     config = load_config()
     device_map = gpu_device_map(config["num_hidden_layers"])
-    if args.smoke_test or args.diagnose_forward:
+    if args.smoke_test or args.diagnose_forward or args.diagnose_activations:
         print(json.dumps({
             "torch_version": str(torch.__version__), "cuda_version": torch.version.cuda,
             "transformers_version": transformers.__version__,
@@ -318,6 +375,10 @@ def main():
             "tokenizers_version": version("tokenizers"), "safetensors_version": version("safetensors"),
             "device_map": device_map,
         }, indent=2), file=sys.stderr)
+        if args.diagnose_activations:
+            inspect_activations = load_generator(torch, transformers, device_map, activation_diagnostic=True)
+            inspect_activations(shared.PROMPT.format(question=SMOKE_PROBES[0][0]))
+            return 0
         if args.diagnose_forward:
             return forward_diagnostic_test(torch, transformers, device_map)
         return smoke_test(torch, transformers, gpus, device_map)

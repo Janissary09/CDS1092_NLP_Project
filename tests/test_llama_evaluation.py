@@ -268,6 +268,76 @@ class LlamaEvaluationTests(unittest.TestCase):
             self.assertFalse(result["hit_token_limit"])
             self.assertTrue(result["passed"])
 
+    def test_activation_statistics_report_finite_values_and_zeros(self):
+        tensor = Mock(shape=(1, 6), dtype="bf16", device="cuda:1")
+        values = tensor.detach.return_value.cpu.return_value.float.return_value.flatten.return_value
+        values.tolist.return_value = [0.0, -0.0, -3.0, 7.0, float("nan"), float("-inf")]
+        self.assertEqual(evaluator.activation_statistics(tensor), {
+            "shape": [1, 6], "dtype": "bf16", "device": "cuda:1",
+            "nan_count": 1, "inf_count": 1, "zero_count": 2,
+            "finite_min": -3.0, "finite_max": 7.0, "finite_abs_mean": 2.5,
+        })
+        values.tolist.return_value = [float("nan"), float("inf")]
+        report = evaluator.activation_statistics(tensor)
+        self.assertIsNone(report["finite_min"])
+        self.assertIsNone(report["finite_max"])
+        self.assertIsNone(report["finite_abs_mean"])
+
+    def test_activation_diagnostic_samples_requested_modules_and_removes_hooks(self):
+        torch, transformers, model, tokenizer, _, inputs, _ = self.generator_fixture()
+        torch.cuda = Mock()
+        torch.count_nonzero = Mock()
+        tensor = object()
+        names = ("model.embed_tokens", "model.layers.0", "model.layers.39", "model.layers.40",
+                 "model.layers.79", "model.norm", "lm_head")
+        modules = [Mock() for _ in names]
+        model.model = SimpleNamespace(embed_tokens=modules[0], norm=modules[-2],
+                                      layers=dict(zip((0, 39, 40, 79), modules[1:5])))
+        model.lm_head = modules[-1]
+        weight = Mock(shape=(2, 3), dtype="bf16", device="cuda:1")
+        weight.numel.return_value = 6
+        torch.count_nonzero.return_value.item.return_value = 0
+        for module in modules:
+            module.named_parameters.return_value = []
+        model.lm_head.named_parameters.return_value = [("weight", weight)]
+
+        def forward(**_kwargs):
+            for module in modules:
+                hook = module.register_forward_hook.call_args.args[0]
+                hook(module, (), (tensor,) if module is modules[1] else tensor)
+
+        model.side_effect = forward
+        inspect = evaluator.load_generator(torch, transformers, evaluator.gpu_device_map(80),
+                                           activation_diagnostic=True)
+        prompt = protocol.PROMPT.format(question=evaluator.SMOKE_PROBES[0][0])
+        with patch.object(evaluator, "activation_statistics", return_value={}) as stats, \
+                patch.object(evaluator, "log_generation") as log:
+            inspect(prompt)
+        transformers.LlamaForCausalLM.from_pretrained.assert_called_once()
+        tokenizer.apply_chat_template.assert_called_once_with(
+            [{"role": "user", "content": prompt}], add_generation_prompt=True,
+            tokenize=True, return_dict=True, return_tensors="pt",
+        )
+        model.assert_called_once_with(**inputs, use_cache=True, logits_to_keep=1, return_dict=True)
+        model.generate.assert_not_called()
+        self.assertEqual([call.args for call in torch.cuda.synchronize.call_args_list], [(0,), (1,)])
+        self.assertEqual([call.args for call in stats.call_args_list], [(tensor,)] * 7)
+        self.assertEqual([call.args[1]["module"] for call in log.call_args_list[:-1]], list(names))
+        self.assertEqual(log.call_args.args, ("llama_layer_parameter", {
+            "parameter": "lm_head.weight", "shape": [2, 3], "dtype": "bf16", "device": "cuda:1",
+            "zero_count": 6, "all_zero": True,
+        }))
+        torch.count_nonzero.assert_called_once_with(weight)
+        for module in modules:
+            module.register_forward_hook.return_value.remove.assert_called_once()
+            module.register_forward_hook.return_value.remove.reset_mock()
+
+        model.side_effect = RuntimeError("forward failed")
+        with self.assertRaisesRegex(RuntimeError, "forward failed"):
+            inspect(prompt)
+        for module in modules:
+            module.register_forward_hook.return_value.remove.assert_called_once()
+
     def test_smoke_fails_if_either_probe_fails_and_reports_both(self):
         corrupt = 9223231297218904063
         for failed_probe, failure in (
