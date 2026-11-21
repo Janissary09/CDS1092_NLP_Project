@@ -1,0 +1,63 @@
+{
+  "num_examples": 10944,
+  "num_invalid": 0,
+  "invalid_rate": 0.0,
+  "accuracy": 0.7387609649122807,
+  "precision_unanswerable": 0.7018384056851538,
+  "recall_unanswerable": 0.8302266081871345,
+  "f1_unanswerable": 0.7606529928840519,
+  "positive_class": "UNANSWERABLE",
+  "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero.",
+  "confusion_matrix": [
+    [
+      3542,
+      1930,
+      0
+    ],
+    [
+      929,
+      4543,
+      0
+    ]
+  ],
+  "confusion_matrix_rows": [
+    "ANSWERABLE",
+    "UNANSWERABLE"
+  ],
+  "confusion_matrix_columns": [
+    "ANSWERABLE",
+    "UNANSWERABLE",
+    "INVALID"
+  ],
+  "run": {
+    "dataset": "sum",
+    "dataset_sha256": "c1e4bac1e1d1f27ab8a6408ac68ae710faf521822bff49a1c5958b027540b1f0",
+    "row_count": 10944,
+    "run_id": "run_01",
+    "model_id": "google/gemma-3-27b-it",
+    "model_path": "models/gemma-3-27b-it",
+    "model_type": "gemma3",
+    "model_architectures": [
+      "Gemma3ForConditionalGeneration"
+    ],
+    "model_sha256": "32c2327173a351658094430eb445b8d3371eb70ef6b5f4b6aee5b7c5fad77c22",
+    "evaluator_sha256": "49bb6d61c5046406d283edc1b0e503c1c81b54de5018b72f63e0eccad1abcf08",
+    "shared_evaluator_sha256": "292e98e5db749939399e3fea2a6279fd99648160577d968bf4d49a6f689042bb",
+    "prompt": "Determine whether the following math problem can be answered using the information provided.\n\nRespond with exactly one label:\nANSWERABLE or UNANSWERABLE.\n\nDo not solve the problem or provide an explanation.\n\nMath problem:\n{question}\n\nLabel:",
+    "chat_template": "Gemma processor native chat template, one text-only user message",
+    "model_api": "Gemma3ForConditionalGeneration",
+    "processor_api": "AutoProcessor",
+    "dtype": "bfloat16",
+    "quantization": null,
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "requested_temperature": 0,
+    "do_sample": false,
+    "num_beams": 1,
+    "max_new_tokens": 16,
+    "torch_version": "2.11.0+cu128",
+    "transformers_version": "5.22.2",
+    "cuda_version": "12.8",
+    "transformers_distribution_url": null,
+    "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero."
+  }
+}
