@@ -4,6 +4,7 @@ from contextlib import closing
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -226,6 +227,101 @@ class LlamaEvaluationTests(unittest.TestCase):
         report = json.loads(output.call_args.args[0])
         self.assertEqual([gpu["load_peak_allocated_gib"] for gpu in report["gpus"]], [65, 66])
         self.assertEqual([gpu["combined_peak_allocated_gib"] for gpu in report["gpus"]], [67, 68])
+
+    def test_trace_observes_installed_loop_anchors_and_restores_trace(self):
+        torch = SimpleNamespace(cuda=Mock(), cat=Mock())
+        empty, appended = MagicMock(), MagicMock()
+        empty.__getitem__.return_value.tolist.return_value = []
+        appended.__getitem__.return_value.tolist.return_value = [15]
+        torch.cat.return_value = appended
+        scores_tensor, selected, unfinished = MagicMock(), MagicMock(), MagicMock()
+        scores_tensor.__getitem__.return_value.cpu.return_value.argmax.return_value.item.return_value = 15
+        selected.__getitem__.return_value.item.return_value = 15
+        unfinished.__getitem__.return_value.item.return_value = 1
+
+        def sample():
+            input_ids = empty
+            next_tokens = selected
+            next_token_scores = scores_tensor
+            unfinished_sequences = unfinished
+            stopping_criteria = Mock(return_value=0)
+            scores = None
+            for _ in range(5):
+                input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
+                unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, scores)
+            return input_ids
+
+        previous = sys.gettrace()
+        steps = []
+        with evaluator.trace_greedy_steps(torch, sample, 3, steps, limit=1):
+            self.assertIs(sample(), appended)
+        self.assertIs(sys.gettrace(), previous)
+        self.assertEqual(len(steps), 1)
+        self.assertEqual(torch.cuda.synchronize.call_count, 2)
+        self.assertEqual(steps[0]["post_processor_cpu_argmax"], 15)
+        self.assertEqual(steps[0]["cuda_selected_after_padding"], 15)
+        self.assertEqual(steps[0]["suffix_before_cat"], [])
+        self.assertEqual(steps[0]["suffix_after_cat"], [15])
+
+    def test_first_trace_divergence(self):
+        valid = {
+            "step": 1, "unfinished": True, "post_processor_cpu_argmax": 15,
+            "cuda_selected_after_padding": 15, "suffix_before_cat": [], "suffix_after_cat": [15],
+        }
+        corrupt = 9223231297218904063
+        for update, final, stage in (
+            ({}, [15], None),
+            ({"cuda_selected_after_padding": corrupt}, [corrupt], "cuda_selection_or_padding"),
+            ({"suffix_after_cat": [corrupt]}, [corrupt], "cat"),
+            ({"suffix_before_cat": [corrupt]}, [corrupt], "before_cat_changed_prior_suffix"),
+            ({}, [corrupt], "after_last_traced_cat_or_readback"),
+            ({"unfinished": False, "cuda_selected_after_padding": 128009, "suffix_after_cat": [128009]},
+             [128009], None),
+        ):
+            with self.subTest(stage=stage):
+                result = evaluator.first_trace_divergence([{**valid, **update}], final, 128009)
+                self.assertEqual(result, {"step": 1, "stage": stage} if stage else None)
+
+    def test_controlled_diagnostic_reruns_only_corrupt_return_modes(self):
+        torch = SimpleNamespace(cuda=Mock())
+        inputs = {"input_ids": Mock(shape=(1, 3)), "attention_mask": Mock()}
+        config = SimpleNamespace(max_new_tokens=16, do_sample=False, num_beams=1)
+        model, tokenizer = Mock(), Mock()
+        corrupt = 9223231297218904063
+        bad, good = MagicMock(), MagicMock()
+        bad.__getitem__.side_effect = lambda index: Mock(
+            tolist=Mock(return_value=[1, 2, 3, corrupt] if index == 0 else [corrupt]),
+        )
+        good.__getitem__.return_value.tolist.return_value = [15]
+        structured = SimpleNamespace(sequences=bad, past_key_values=None)
+        model.generate.side_effect = [structured, good, structured]
+
+        def trace(_torch, _sample, _length, steps):
+            steps.append({
+                "step": 1, "unfinished": True, "post_processor_cpu_argmax": 15,
+                "cuda_selected_after_padding": 15, "suffix_before_cat": [], "suffix_after_cat": [corrupt],
+            })
+            return closing(Mock())
+
+        with patch.object(evaluator, "trace_greedy_steps", side_effect=trace) as traced, \
+                patch.object(evaluator, "log_generation") as log:
+            status = evaluator.diagnose_generation(
+                torch, model, tokenizer, inputs, config, {128009}, 128009, {15, 128009}, 128256,
+            )
+        self.assertEqual(status, 1)
+        traced.assert_called_once()
+        tokenizer.decode.assert_not_called()
+        configs = [call.kwargs["generation_config"] for call in model.generate.call_args_list]
+        self.assertEqual([(item.return_dict_in_generate, item.output_logits) for item in configs],
+                         [(True, True), (False, False), (True, True)])
+        self.assertTrue(all(item.max_new_tokens == 16 and not item.do_sample and item.num_beams == 1
+                            for item in configs))
+        self.assertFalse(hasattr(config, "output_logits"))
+        event, report = log.call_args.args
+        self.assertEqual(event, "llama_job1808_trace")
+        self.assertEqual(report["final_generated_token_ids"], [corrupt])
+        self.assertEqual(report["final_sequence"], [1, 2, 3, corrupt])
+        self.assertEqual(report["first_divergence"], {"step": 1, "stage": "cat"})
 
     def test_smoke_rejects_invalid_wrong_or_truncated_output(self):
         for raw, ids, hit_limit in (

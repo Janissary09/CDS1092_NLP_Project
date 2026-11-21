@@ -10,9 +10,10 @@
 set -Eeuo pipefail
 case "$*" in
     smoke) args=(--smoke-test) ;;
+    diagnose) args=(--diagnose-generation) ;;
     "umwp run_01"|"sum run_01") args=(--dataset "$1" --run-id "$2") ;;
     *)
-        echo "Usage: sbatch slurm/evaluate_llama.sh smoke | {umwp|sum} run_01" >&2
+        echo "Usage: sbatch slurm/evaluate_llama.sh smoke | diagnose | {umwp|sum} run_01" >&2
         exit 2
         ;;
 esac
