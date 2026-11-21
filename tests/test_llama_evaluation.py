@@ -410,6 +410,81 @@ class LlamaEvaluationTests(unittest.TestCase):
                 for module, _, _ in output_hooks:
                     module.register_forward_hook.return_value.remove.assert_called_once()
 
+    def test_transfer_diagnostic_compares_manual_copy_with_aligned_input(self):
+        for manual_values, matches_source in (([2.0, -1.0], True), ([0.0, 0.0], False)):
+            with self.subTest(manual_values=manual_values):
+                torch, transformers, model, tokenizer, _, inputs, _ = self.generator_fixture()
+                torch.cuda = Mock()
+                layer39, layer40 = Mock(), Mock()
+                norm = layer40.input_layernorm
+                model.model = SimpleNamespace(layers={39: layer39, 40: layer40})
+
+                def tensor(values, device, address):
+                    result = Mock(shape=(1, 1, 2), dtype="bf16", device=device)
+                    result.untyped_storage.return_value.data_ptr.return_value = address
+
+                    def read_cpu():
+                        self.assertEqual([call.args for call in torch.cuda.synchronize.call_args_list],
+                                         [(0,), (1,)] * 2)
+                        return Mock(float=Mock(return_value=Mock(
+                            flatten=Mock(return_value=Mock(tolist=Mock(return_value=values))),
+                        )))
+
+                    result.detach.return_value.cpu.side_effect = read_cpu
+                    return result
+
+                source = tensor([2.0, -1.0], "cuda:0", 1)
+                source_copy = tensor([2.0, -1.0], "cuda:0", 2)
+                aligned = tensor([0.0, 0.0], "cuda:1", 3)
+                aligned_copy = tensor([0.0, 0.0], "cuda:1", 4)
+                manual = tensor(manual_values, "cuda:1", 5)
+                source.detach.return_value.clone.return_value = source_copy
+                aligned.detach.return_value.clone.return_value = aligned_copy
+
+                def forward(**_kwargs):
+                    layer39.register_forward_hook.call_args.args[0](layer39, (), (source,))
+                    norm.register_forward_pre_hook.call_args.args[0](norm, (aligned,))
+                    source_copy.to.assert_not_called()
+
+                def transfer(device):
+                    self.assertEqual(device, "cuda:1")
+                    self.assertEqual([call.args for call in torch.cuda.synchronize.call_args_list],
+                                     [(0,), (1,)])
+                    norm.register_forward_pre_hook.return_value.remove.assert_called_once()
+                    return manual
+
+                model.side_effect = forward
+                source_copy.to.side_effect = transfer
+                inspect = evaluator.load_generator(torch, transformers, evaluator.gpu_device_map(80),
+                                                   transfer_diagnostic=True)
+                prompt = protocol.PROMPT.format(question=evaluator.SMOKE_PROBES[0][0])
+                with patch.object(evaluator, "log_generation") as log:
+                    inspect(prompt)
+                transformers.LlamaForCausalLM.from_pretrained.assert_called_once()
+                model.assert_called_once_with(**inputs, use_cache=True, logits_to_keep=1, return_dict=True)
+                tokenizer.apply_chat_template.assert_called_once_with(
+                    [{"role": "user", "content": prompt}], add_generation_prompt=True,
+                    tokenize=True, return_dict=True, return_tensors="pt",
+                )
+                model.generate.assert_not_called()
+                source_copy.to.assert_called_once_with("cuda:1")
+                source.to.assert_not_called()
+                source.detach.return_value.clone.assert_called_once()
+                aligned.detach.return_value.clone.assert_called_once()
+                layer39.register_forward_hook.return_value.remove.assert_called_once()
+                layer40.register_forward_pre_hook.assert_not_called()
+                events = [call.args for call in log.call_args_list]
+                self.assertEqual(events[0][1]["hook_order"], ["layer39_output", "layer40_input"])
+                self.assertFalse(any(events[0][1]["clone_aliases_live_storage"].values()))
+                reports = [report for event, report in events if event == "llama_transfer_snapshot"]
+                self.assertEqual([report["zero_count"] for report in reports],
+                                 [0, 2, 0 if matches_source else 2])
+                pairs = [report for event, report in events if event == "llama_transfer_comparison"]
+                self.assertEqual([pair["exactly_equal"] for pair in pairs],
+                                 [matches_source, False, not matches_source])
+                self.assertEqual([pair["max_abs_difference_finite_pairs"] for pair in pairs],
+                                 [0.0 if matches_source else 2.0, 2.0, 2.0 if matches_source else 0.0])
+
     def test_smoke_fails_if_either_probe_fails_and_reports_both(self):
         corrupt = 9223231297218904063
         for failed_probe, failure in (
