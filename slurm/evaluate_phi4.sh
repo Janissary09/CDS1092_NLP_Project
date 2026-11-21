@@ -6,13 +6,15 @@
 #SBATCH --time=15:00:00
 #SBATCH --signal=B:TERM@120
 
-# For smoke only, override the default with sbatch --time=00:15:00.
+# For smoke and diagnostics, override the default with sbatch --time=00:15:00.
 set -Eeuo pipefail
 case "$*" in
     smoke) args=(--smoke-test) ;;
+    diagnose-reasoning) args=(--diagnose-reasoning) ;;
     "umwp run_01"|"sum run_01") args=(--dataset "$1" --run-id "$2") ;;
     *)
         echo "Usage: sbatch --time=00:15:00 slurm/evaluate_phi4.sh smoke" >&2
+        echo "       sbatch --time=00:15:00 slurm/evaluate_phi4.sh diagnose-reasoning" >&2
         echo "       sbatch slurm/evaluate_phi4.sh {umwp|sum} run_01" >&2
         exit 2
         ;;

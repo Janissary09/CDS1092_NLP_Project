@@ -2,11 +2,13 @@
 
 import argparse
 from contextlib import closing
+from copy import copy
 import hashlib
 from importlib.metadata import distribution
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
+import re
 import signal
 
 
@@ -14,6 +16,13 @@ ROOT = Path(__file__).resolve().parents[1]
 MODEL_ID = "microsoft/Phi-4-reasoning-plus"
 MODEL_PATH = ROOT / "models/phi-4-reasoning-plus"
 ARCHITECTURE = "Phi3ForCausalLM"
+SMOKE_PROBES = (
+    ("A basket contains 4 apples. Two apples are added. How many apples are in the basket?",
+     "ANSWERABLE"),
+    ("A basket contains some apples. Two apples are added. How many apples are in the basket?",
+     "UNANSWERABLE"),
+)
+DIAGNOSTIC_BUDGETS = (16, 64, 256, 512)
 
 # Reuse the benchmark protocol without changing the frozen Qwen entry point.
 SHARED_PATH = Path(__file__).with_name("25_evaluate_qwen.py")
@@ -80,18 +89,22 @@ def load_generator(torch, transformers):
     )
 
     @torch.inference_mode()
-    def generate(prompt):
+    def generate(prompt, *, max_new_tokens=shared.MAX_NEW_TOKENS):
+        config = generation
+        if max_new_tokens != shared.MAX_NEW_TOKENS:
+            config = copy(generation)
+            config.max_new_tokens = max_new_tokens
         # The native template adds Microsoft's reasoning instruction.
         inputs = tokenizer.apply_chat_template(
             [{"role": "user", "content": prompt}],
             add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt",
         ).to(device)
         input_length = inputs["input_ids"].shape[-1]
-        ids = model.generate(**inputs, generation_config=generation)[0, input_length:].tolist()
+        ids = model.generate(**inputs, generation_config=config)[0, input_length:].tolist()
         terminated = bool(ids and ids[-1] in eos_ids)
         raw = tokenizer.decode(ids[:-1] if terminated else ids,
                                skip_special_tokens=False, clean_up_tokenization_spaces=False)
-        return raw, ids, len(ids) == shared.MAX_NEW_TOKENS and not terminated
+        return raw, ids, len(ids) == max_new_tokens and not terminated
 
     return generate
 
@@ -101,14 +114,8 @@ def smoke_test(torch, transformers, gpu):
     generate = load_generator(torch, transformers)
     torch.cuda.synchronize()
     load_peak = torch.cuda.max_memory_allocated()
-    probes = (
-        ("A basket contains 4 apples. Two apples are added. How many apples are in the basket?",
-         "ANSWERABLE"),
-        ("A basket contains some apples. Two apples are added. How many apples are in the basket?",
-         "UNANSWERABLE"),
-    )
     responses = []
-    for question, expected in probes:
+    for question, expected in SMOKE_PROBES:
         raw, ids, hit_limit = generate(shared.PROMPT.format(question=question))
         prediction = shared.parse_label(raw)
         responses.append({
@@ -129,15 +136,48 @@ def smoke_test(torch, transformers, gpu):
     return 0 if passed else 1
 
 
+def extract_diagnostic_label(raw):
+    """Read a standalone final label outside a completed reasoning block."""
+    before, closing_tag, final = raw.rpartition("</think>")
+    if "<think>" in final:
+        return None
+    if closing_tag and before.count("<think>") != before.count("</think>") + 1:
+        return None
+    lines = final.strip().splitlines()
+    match = re.fullmatch(r"(?:Label:[ \t]*)?(ANSWERABLE|UNANSWERABLE)", lines[-1].strip()) if lines else None
+    return match.group(1) if match else None
+
+
+def reasoning_diagnostic(torch, transformers, gpu):
+    generate = load_generator(torch, transformers)
+    responses = []
+    for question, expected in SMOKE_PROBES:
+        prompt = shared.PROMPT.format(question=question)
+        for budget in DIAGNOSTIC_BUDGETS:
+            raw, ids, hit_limit = generate(prompt, max_new_tokens=budget)
+            responses.append({
+                "question": question, "expected": expected, "max_new_tokens": budget,
+                "raw_response": raw, "extracted_final_label": extract_diagnostic_label(raw),
+                "strict_prediction": shared.parse_label(raw), "generated_token_count": len(ids),
+                "hit_token_limit": hit_limit,
+            })
+    print(json.dumps({
+        "model_id": MODEL_ID, "gpu": gpu.name, "mode": "reasoning_diagnostic",
+        "responses": responses,
+    }, indent=2), flush=True)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dataset", choices=shared.DATASETS)
     mode.add_argument("--smoke-test", action="store_true")
+    mode.add_argument("--diagnose-reasoning", action="store_true")
     parser.add_argument("--run-id", choices=["run_01"])
     args = parser.parse_args()
-    if args.smoke_test == (args.run_id is not None):
-        parser.error("Use --smoke-test alone or --dataset with --run-id run_01")
+    if (args.dataset is None) == (args.run_id is not None):
+        parser.error("Use a smoke or diagnostic mode alone, or --dataset with --run-id run_01")
 
     import torch
     import transformers
@@ -152,6 +192,8 @@ def main():
         raise RuntimeError(f"Expected BF16 on an A100, found {gpu.name}")
 
     config = load_config()
+    if args.diagnose_reasoning:
+        return reasoning_diagnostic(torch, transformers, gpu)
     if args.smoke_test:
         return smoke_test(torch, transformers, gpu)
 

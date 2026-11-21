@@ -105,6 +105,64 @@ class Phi4EvaluationTests(unittest.TestCase):
         tokens.return_value = [42] * 15 + [100265]
         self.assertFalse(generate(prompt)[2])
 
+    def test_diagnostic_budget_preserves_default_and_distinguishes_eos_from_truncation(self):
+        torch, transformers, tokenizer, model = self.set_up_generator()
+        transformers.GenerationConfig.side_effect = SimpleNamespace
+        tokenizer.apply_chat_template.return_value.to.return_value = {
+            "input_ids": SimpleNamespace(shape=(1, 10)),
+        }
+        sequences = MagicMock()
+        tokens = sequences.__getitem__.return_value.tolist
+        model.generate.return_value = sequences
+        generate = evaluator.load_generator(torch, transformers)
+
+        tokens.return_value = [42] * 64
+        self.assertTrue(generate("prompt", max_new_tokens=64)[2])
+        tokens.return_value = [42] * 63 + [100265]
+        self.assertFalse(generate("prompt", max_new_tokens=64)[2])
+        tokens.return_value = [42] * 16
+        self.assertTrue(generate("prompt")[2])
+        configs = [call.kwargs["generation_config"] for call in model.generate.call_args_list]
+        self.assertEqual([config.max_new_tokens for config in configs], [64, 64, 16])
+        self.assertTrue(all(not config.do_sample and config.num_beams == 1 for config in configs))
+
+    def test_extraction_excludes_reasoning_and_does_not_change_strict_classification(self):
+        for raw, label in (
+            (" ANSWERABLE\n", "ANSWERABLE"),
+            ("<think>May be ANSWERABLE.</think>\nLabel: UNANSWERABLE", "UNANSWERABLE"),
+            ("<think>Incomplete analysis\nANSWERABLE", None),
+            ("<think>ANSWERABLE</think>", None),
+            ("The problem is ANSWERABLE.", None),
+            ("", None),
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(evaluator.extract_diagnostic_label(raw), label)
+        self.assertEqual(evaluator.shared.parse_label("<think>Analysis</think>\nANSWERABLE"), "INVALID")
+
+    def test_reasoning_diagnostic_loads_once_and_sweeps_both_frozen_probes(self):
+        raw = "<think>Reasoning</think>\nUNANSWERABLE"
+        generate = Mock(side_effect=[("<think>Incomplete", [1] * 16, True),
+                                     *[(raw, [1, 100265], False)] * 7])
+        torch, transformers, gpu = object(), object(), SimpleNamespace(name="A100")
+        with patch.object(evaluator, "load_generator", return_value=generate) as load, \
+                patch("builtins.print") as output:
+            self.assertEqual(evaluator.reasoning_diagnostic(torch, transformers, gpu), 0)
+        load.assert_called_once_with(torch, transformers)
+        self.assertEqual(
+            [(call.args[0], call.kwargs["max_new_tokens"]) for call in generate.call_args_list],
+            [(evaluator.shared.PROMPT.format(question=question), budget)
+             for question, _ in evaluator.SMOKE_PROBES for budget in (16, 64, 256, 512)],
+        )
+        results = json.loads(output.call_args.args[0])["responses"]
+        self.assertEqual([row["expected"] for row in results], ["ANSWERABLE"] * 4 + ["UNANSWERABLE"] * 4)
+        self.assertEqual(results[0]["generated_token_count"], 16)
+        self.assertTrue(results[0]["hit_token_limit"])
+        self.assertIsNone(results[0]["extracted_final_label"])
+        self.assertEqual(results[-1]["raw_response"], raw)
+        self.assertEqual(results[-1]["generated_token_count"], 2)
+        self.assertEqual(results[-1]["extracted_final_label"], "UNANSWERABLE")
+        self.assertEqual(results[-1]["strict_prediction"], "INVALID")
+
     def test_rejects_missing_template_and_incomplete_or_offloaded_model(self):
         torch, transformers, tokenizer, model = self.set_up_generator()
         with patch.object(tokenizer, "chat_template", None):
