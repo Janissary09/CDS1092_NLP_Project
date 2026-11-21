@@ -1,12 +1,10 @@
 """Run Llama 3.3 70B Instruct zero-shot classification on one complete benchmark."""
 
 import argparse
-from contextlib import closing, contextmanager, nullcontext
-from copy import copy
+from contextlib import closing
 import hashlib
 from importlib.metadata import distribution, version
 from importlib.util import module_from_spec, spec_from_file_location
-from inspect import getsourcelines
 import json
 from pathlib import Path
 import signal
@@ -17,7 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 MODEL_ID = "meta-llama/Llama-3.3-70B-Instruct"
 MODEL_PATH = ROOT / "models/llama-3.3-70b-instruct"
 ARCHITECTURE = "LlamaForCausalLM"
-SMOKE_QUESTION = "A basket contains 4 apples. Two apples are added. How many apples are in the basket?"
+SMOKE_PROBES = (
+    ("A basket contains 4 apples. Two apples are added. How many apples are in the basket?",
+     "ANSWERABLE"),
+    ("A basket contains some apples. Two apples are added. How many apples are in the basket?",
+     "UNANSWERABLE"),
+)
 
 # Reuse the benchmark protocol without changing the frozen Qwen entry point.
 SHARED_PATH = Path(__file__).with_name("25_evaluate_qwen.py")
@@ -73,142 +76,14 @@ def log_generation(event, details):
     print(json.dumps({"event": event, **details}), file=sys.stderr, flush=True)
 
 
-# Job 1808 diagnostic only. Observe the installed 5.22.2 loop without patching it.
-@contextmanager
-def trace_greedy_steps(torch, sample, input_length, steps, limit=4):
-    source, first_line = getsourcelines(sample)
-    anchors = (
-        "input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)",
-        "unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, scores)",
-    )
-    lines = [[first_line + i for i, line in enumerate(source) if line.strip() == anchor]
-             for anchor in anchors]
-    if any(len(matches) != 1 for matches in lines) or lines[1][0] != lines[0][0] + 1:
-        raise RuntimeError("Unsupported installed Transformers _sample source for the Job 1808 trace")
-    before, after = (matches[0] for matches in lines)
-    code = sample.__code__
-
-    def capture(frame, event, _arg):
-        if event != "line" or frame.f_lineno not in (before, after):
-            return capture
-        state = frame.f_locals
-        ids = state["input_ids"]
-        torch.cuda.synchronize(ids.device)
-        if frame.f_lineno == before:
-            scores = state["next_token_scores"][0].cpu()
-            steps.append({
-                "step": len(steps) + 1,
-                "scores_device": str(state["next_token_scores"].device),
-                "post_processor_cpu_argmax": scores.argmax().item(),
-                "unfinished": bool(state["unfinished_sequences"][0].item()),
-                "cuda_selected_after_padding": state["next_tokens"][0].item(),
-                "suffix_before_cat": ids[0, input_length:].tolist(),
-            })
-        else:
-            steps[-1]["suffix_after_cat"] = ids[0, input_length:].tolist()
-            if len(steps) == limit:
-                frame.f_trace = None
-                return None
-        return capture
-
-    def trace(frame, event, _arg):
-        return capture if event == "call" and frame.f_code is code else None
-
-    previous = sys.gettrace()
-    try:
-        sys.settrace(trace)
-        yield
-    finally:
-        sys.settrace(previous)
+class InvalidGeneratedTokens(RuntimeError):
+    def __init__(self, ids, hit_limit):
+        super().__init__("Llama generated token IDs outside the tokenizer vocabulary or LM head range")
+        self.ids = ids
+        self.hit_limit = hit_limit
 
 
-def first_trace_divergence(steps, final_ids, pad):
-    previous = []
-    for step in steps:
-        number = step["step"]
-        selected = step["cuda_selected_after_padding"]
-        expected = step["post_processor_cpu_argmax"] if step["unfinished"] else pad
-        if step["suffix_before_cat"] != previous:
-            return {"step": number, "stage": "before_cat_changed_prior_suffix"}
-        if selected != expected:
-            return {"step": number, "stage": "cuda_selection_or_padding"}
-        appended = step["suffix_after_cat"]
-        if appended != previous + [selected]:
-            return {"step": number, "stage": "cat"}
-        previous = appended
-    if final_ids[:len(previous)] != previous:
-        index = next(i for i, value in enumerate(previous) if final_ids[i:i + 1] != [value])
-        return {"step": index + 1, "stage": "after_last_traced_cat_or_readback"}
-    return None
-
-
-def diagnose_generation(torch, model, tokenizer, inputs, generation, eos_ids, pad, vocab_ids, vocab_width):
-    input_length = inputs["input_ids"].shape[-1]
-
-    def run(structured, *, tracing=False):
-        config = copy(generation)
-        config.return_dict_in_generate = structured
-        config.output_logits = structured
-        steps = []
-        context = (trace_greedy_steps(torch, model._sample, input_length, steps)
-                   if tracing else nullcontext())
-        try:
-            with context:
-                output = model.generate(**{key: value.clone() for key, value in inputs.items()},
-                                        generation_config=config)
-        except Exception:
-            if tracing:
-                log_generation("llama_job1808_trace_interrupted", {
-                    "mode": "structured" if structured else "plain", "steps": steps,
-                })
-            raise
-        sequences = output.sequences if structured else output
-        if tracing:
-            torch.cuda.synchronize(sequences.device)
-        # Match the original smoke-test readback for both untraced baselines.
-        ids = sequences[0, input_length:].tolist()
-        invalid = [index for index, token_id in enumerate(ids)
-                   if type(token_id) is not int or not 0 <= token_id < vocab_width
-                   or token_id not in vocab_ids]
-        report = {
-            "mode": "structured" if structured else "plain", "traced": tracing,
-            "final_generated_token_ids": ids, "invalid_token_positions": invalid,
-            "sequence_device": str(sequences.device), "sequence_dtype": str(sequences.dtype),
-        }
-        if structured:
-            report["cache_class"] = type(output.past_key_values).__name__
-        if tracing:
-            if not steps:
-                raise RuntimeError("The installed Transformers greedy loop was not traced")
-            report["steps"] = steps
-            report["final_sequence"] = sequences[0].tolist()
-            report["first_divergence"] = first_trace_divergence(steps, ids, pad)
-            log_generation("llama_job1808_trace", report)
-        else:
-            log_generation("llama_job1808_baseline", report)
-        return ids, invalid
-
-    structured = run(True)
-    plain = run(False)
-    log_generation("llama_job1808_comparison", {"sequences_match": structured[0] == plain[0]})
-    for mode, result in ((True, structured), (False, plain)):
-        if result[1]:
-            run(mode, tracing=True)
-    if structured[1] or plain[1] or structured[0] != plain[0]:
-        return 1
-    ids = structured[0]
-    ended = bool(ids and ids[-1] in eos_ids)
-    raw = tokenizer.decode(ids[:-1] if ended else ids, skip_special_tokens=False,
-                           clean_up_tokenization_spaces=False)
-    prediction = shared.parse_label(raw)
-    hit_limit = len(ids) == shared.MAX_NEW_TOKENS and not ended
-    log_generation("llama_job1808_prediction", {
-        "prediction": prediction, "raw_response": raw, "hit_token_limit": hit_limit,
-    })
-    return int(prediction != "ANSWERABLE" or hit_limit)
-
-
-def load_generator(torch, transformers, device_map, *, diagnostics=False, trace_corruption=False):
+def load_generator(torch, transformers, device_map):
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
     if not tokenizer.chat_template:
         raise ValueError("The local Llama tokenizer is missing its native chat template")
@@ -270,23 +145,8 @@ def load_generator(torch, transformers, device_map, *, diagnostics=False, trace_
             [{"role": "user", "content": prompt}],
             add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt",
         ).to(input_device)
-        if trace_corruption:
-            if model.config._attn_implementation != "sdpa":
-                raise RuntimeError("The Job 1808 diagnostic requires SDPA")
-            diagnostic_config = copy(generation)
-            diagnostic_config.cache_implementation = "dynamic"
-            log_generation("llama_job1808_settings", {
-                "attention": "sdpa", "cache_implementation": "dynamic",
-                "input_device": str(input_device), "lm_head_device": str(output_weights.device),
-                "lm_head_vocab_size": output_weights.shape[0], "pad_token_id": pad,
-                "eos_token_ids": sorted(eos_ids), "max_new_tokens": shared.MAX_NEW_TOKENS,
-            })
-            return diagnose_generation(torch, model, tokenizer, inputs, diagnostic_config, eos_ids,
-                                       pad, vocab_ids, output_weights.shape[0])
         input_length = inputs["input_ids"].shape[-1]
-        options = {"return_dict_in_generate": True, "output_logits": True} if diagnostics else {}
-        output = model.generate(**inputs, generation_config=generation, **options)
-        sequences = output.sequences if diagnostics else output
+        sequences = model.generate(**inputs, generation_config=generation)
         ids = sequences[0, input_length:].tolist()
         outside_uint32 = [
             index for index, token_id in enumerate(ids)
@@ -311,26 +171,9 @@ def load_generator(torch, transformers, device_map, *, diagnostics=False, trace_
             "max_new_tokens": shared.MAX_NEW_TOKENS, "hit_token_limit": hit_limit,
             "eos_token_ids": sorted(eos_ids), "pad_token_id": pad, "ended_with_eos": terminated,
         }
-        if diagnostics or invalid_positions:
-            log_generation("llama_before_decode", details)
-        nonfinite = []
-        if diagnostics:
-            argmax_ids = []
-            for step, logits in enumerate(output.logits):
-                values = logits[0].float().cpu()
-                if torch.isfinite(values).all().item():
-                    argmax_ids.append(values.argmax().item())
-                else:
-                    nonfinite.append(step)
-                    argmax_ids.append(None)
-            log_generation("llama_generation_logits", {
-                "raw_logits_cpu_argmax_ids": argmax_ids, "nonfinite_logit_steps": nonfinite,
-                "cache_class": type(output.past_key_values).__name__,
-            })
         if invalid_positions:
-            raise RuntimeError("Llama generated token IDs outside the tokenizer vocabulary or LM head range")
-        if nonfinite:
-            raise RuntimeError("Llama generated non-finite logits; see the per-step diagnostics")
+            log_generation("llama_before_decode", details)
+            raise InvalidGeneratedTokens(ids, hit_limit)
         try:
             raw = tokenizer.decode(ids[:-1] if terminated else ids,
                                    skip_special_tokens=False, clean_up_tokenization_spaces=False)
@@ -345,12 +188,27 @@ def load_generator(torch, transformers, device_map, *, diagnostics=False, trace_
 def smoke_test(torch, transformers, gpus, device_map):
     for index in range(len(gpus)):
         torch.cuda.reset_peak_memory_stats(index)
-    generate = load_generator(torch, transformers, device_map, diagnostics=True)
+    generate = load_generator(torch, transformers, device_map)
     for index in range(len(gpus)):
         torch.cuda.synchronize(index)
     load_peaks = [torch.cuda.max_memory_allocated(index) for index in range(len(gpus))]
-    raw, ids, hit_limit = generate(shared.PROMPT.format(question=SMOKE_QUESTION))
-    prediction = shared.parse_label(raw)
+    responses = []
+    for question, expected in SMOKE_PROBES:
+        try:
+            raw, ids, hit_limit = generate(shared.PROMPT.format(question=question))
+            prediction = shared.parse_label(raw)
+            error = None
+        except InvalidGeneratedTokens as exc:
+            raw, ids, hit_limit = None, exc.ids, exc.hit_limit
+            prediction, error = shared.INVALID, str(exc)
+        responses.append({
+            "expected": expected, "prediction": prediction, "raw_response": raw,
+            "generated_token_ids": ids, "hit_token_limit": hit_limit,
+            "passed": bool(ids and prediction == expected and not hit_limit),
+            "error": error,
+        })
+
+    passed = all(response["passed"] for response in responses)
     for index in range(len(gpus)):
         torch.cuda.synchronize(index)
     print(json.dumps({
@@ -361,10 +219,10 @@ def smoke_test(torch, transformers, gpus, device_map):
              "combined_peak_reserved_gib": torch.cuda.max_memory_reserved(index) / 1024**3}
             for index, gpu in enumerate(gpus)
         ],
-        "prediction": prediction, "raw_response": raw,
-        "generated_token_ids": ids, "hit_token_limit": hit_limit,
+        "generation_mode": "plain_tensor", "max_new_tokens": shared.MAX_NEW_TOKENS,
+        "responses": responses, "passed": passed,
     }, indent=2))
-    return int(prediction != "ANSWERABLE" or hit_limit)
+    return 0 if passed else 1
 
 
 def main():
@@ -372,17 +230,13 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dataset", choices=shared.DATASETS)
     mode.add_argument("--smoke-test", action="store_true")
-    mode.add_argument("--diagnose-generation", action="store_true")
     parser.add_argument("--run-id", choices=["run_01"])
     args = parser.parse_args()
     if (args.dataset is None) == (args.run_id is not None):
-        parser.error("Use a smoke mode alone or --dataset with --run-id run_01")
+        parser.error("Use --smoke-test alone or --dataset with --run-id run_01")
 
     import torch
     import transformers
-
-    if args.diagnose_generation and transformers.__version__ != "5.22.2":
-        raise RuntimeError("The Job 1808 diagnostic requires Transformers 5.22.2")
 
     if not hasattr(transformers, ARCHITECTURE):
         raise RuntimeError(f"Transformers must provide {ARCHITECTURE}")
@@ -399,7 +253,7 @@ def main():
     accelerate_version = version("accelerate")
     config = load_config()
     device_map = gpu_device_map(config["num_hidden_layers"])
-    if args.smoke_test or args.diagnose_generation:
+    if args.smoke_test:
         print(json.dumps({
             "torch_version": str(torch.__version__), "cuda_version": torch.version.cuda,
             "transformers_version": transformers.__version__,
@@ -408,9 +262,6 @@ def main():
             "tokenizers_version": version("tokenizers"), "safetensors_version": version("safetensors"),
             "device_map": device_map,
         }, indent=2), file=sys.stderr)
-        if args.diagnose_generation:
-            generate = load_generator(torch, transformers, device_map, trace_corruption=True)
-            return generate(shared.PROMPT.format(question=SMOKE_QUESTION))
         return smoke_test(torch, transformers, gpus, device_map)
 
     rows, dataset_hash = shared.load_dataset(ROOT, args.dataset)

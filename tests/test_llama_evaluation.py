@@ -4,7 +4,6 @@ from contextlib import closing
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
-import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -178,169 +177,82 @@ class LlamaEvaluationTests(unittest.TestCase):
                 self.assertEqual(report["lm_head_vocab_size"], 128256)
                 self.assertTrue(output.call_args.kwargs["flush"])
 
-    def test_smoke_logs_valid_ids_and_logits_before_decoder_overflow(self):
-        torch, transformers, model, tokenizer, sequences, _, _ = self.generator_fixture()
-        values = Mock()
-        values.argmax.return_value.item.return_value = 15
-        logits = MagicMock()
-        logits.__getitem__.return_value.float.return_value.cpu.return_value = values
-        torch.isfinite = Mock()
-        torch.isfinite.return_value.all.return_value.item.return_value = True
-        model.generate.return_value = SimpleNamespace(
-            sequences=sequences, logits=(logits,), past_key_values=None,
-        )
-        generate = evaluator.load_generator(torch, transformers, evaluator.gpu_device_map(80), diagnostics=True)
+    def test_plain_generation_logs_valid_ids_on_decoder_overflow(self):
+        torch, transformers, _, tokenizer, _, _, _ = self.generator_fixture()
+        generate = evaluator.load_generator(torch, transformers, evaluator.gpu_device_map(80))
         error = OverflowError("number too large to fit in target type")
-        with patch("builtins.print") as output:
-            def fail_decode(*args, **kwargs):
-                pre_decode, logit_report = [json.loads(call.args[0]) for call in output.call_args_list]
-                self.assertEqual(pre_decode["generated_token_ids"], [15, 128009])
-                self.assertEqual(pre_decode["invalid_token_positions"], [])
-                self.assertEqual(logit_report["raw_logits_cpu_argmax_ids"], [15])
-                raise error
+        tokenizer.decode.side_effect = error
+        with patch("builtins.print") as output, self.assertRaises(OverflowError) as raised:
+            generate("prompt")
+        self.assertIs(raised.exception, error)
+        report = json.loads(output.call_args.args[0])
+        self.assertEqual(report["event"], "llama_decode_overflow")
+        self.assertEqual(report["generated_token_ids"], [15, 128009])
+        self.assertEqual(report["invalid_token_positions"], [])
 
-            tokenizer.decode.side_effect = fail_decode
-            with self.assertRaises(OverflowError) as raised:
-                generate("prompt")
-            self.assertIs(raised.exception, error)
-            self.assertEqual(json.loads(output.call_args.args[0])["event"], "llama_decode_overflow")
-        self.assertTrue(model.generate.call_args.kwargs["output_logits"])
-
-        torch.isfinite.return_value.all.return_value.item.return_value = False
-        tokenizer.decode.reset_mock()
-        with patch("builtins.print") as output:
-            with self.assertRaisesRegex(RuntimeError, "non-finite logits"):
-                generate("prompt")
-            self.assertEqual(json.loads(output.call_args.args[0])["nonfinite_logit_steps"], [0])
-        tokenizer.decode.assert_not_called()
-
-    def test_smoke_reports_memory_on_both_gpus(self):
+    def test_smoke_loads_once_and_reports_both_labels_and_gpu_peaks(self):
         torch = SimpleNamespace(cuda=Mock())
         torch.cuda.max_memory_allocated.side_effect = [65 * 1024**3, 66 * 1024**3, 67 * 1024**3, 68 * 1024**3]
         torch.cuda.max_memory_reserved.return_value = 70 * 1024**3
-        generate = Mock(return_value=("ANSWERABLE", [7], False))
-        gpus = [SimpleNamespace(name="A100"), SimpleNamespace(name="A100")]
-        with patch.object(evaluator, "load_generator", return_value=generate), patch("builtins.print") as output:
-            self.assertEqual(evaluator.smoke_test(torch, object(), gpus, evaluator.gpu_device_map(80)), 0)
-        generate.assert_called_once()
+        generate = Mock(side_effect=[("ANSWERABLE", [7, 128009], False),
+                                     ("UNANSWERABLE", [8, 128009], False)])
+        gpus = [SimpleNamespace(name="A100")] * 2
+        transformers = object()
+        device_map = evaluator.gpu_device_map(80)
+        with patch.object(evaluator, "load_generator", return_value=generate) as load, patch("builtins.print") as output:
+            self.assertEqual(evaluator.smoke_test(torch, transformers, gpus, device_map), 0)
+        load.assert_called_once_with(torch, transformers, device_map)
+        self.assertEqual([call.args for call in generate.call_args_list], [
+            (protocol.PROMPT.format(question=question),) for question, _ in evaluator.SMOKE_PROBES
+        ])
         self.assertEqual([call.args for call in torch.cuda.reset_peak_memory_stats.call_args_list], [(0,), (1,)])
         report = json.loads(output.call_args.args[0])
+        self.assertEqual(report["generation_mode"], "plain_tensor")
+        self.assertEqual(report["max_new_tokens"], 16)
+        self.assertTrue(report["passed"])
         self.assertEqual([gpu["load_peak_allocated_gib"] for gpu in report["gpus"]], [65, 66])
         self.assertEqual([gpu["combined_peak_allocated_gib"] for gpu in report["gpus"]], [67, 68])
+        for result, label, token in zip(report["responses"], ("ANSWERABLE", "UNANSWERABLE"), (7, 8)):
+            self.assertEqual((result["expected"], result["prediction"], result["raw_response"]), (label,) * 3)
+            self.assertEqual(result["generated_token_ids"], [token, 128009])
+            self.assertFalse(result["hit_token_limit"])
+            self.assertTrue(result["passed"])
 
-    def test_trace_observes_installed_loop_anchors_and_restores_trace(self):
-        torch = SimpleNamespace(cuda=Mock(), cat=Mock())
-        empty, appended = MagicMock(), MagicMock()
-        empty.__getitem__.return_value.tolist.return_value = []
-        appended.__getitem__.return_value.tolist.return_value = [15]
-        torch.cat.return_value = appended
-        scores_tensor, selected, unfinished = MagicMock(), MagicMock(), MagicMock()
-        scores_tensor.__getitem__.return_value.cpu.return_value.argmax.return_value.item.return_value = 15
-        selected.__getitem__.return_value.item.return_value = 15
-        unfinished.__getitem__.return_value.item.return_value = 1
-
-        def sample():
-            input_ids = empty
-            next_tokens = selected
-            next_token_scores = scores_tensor
-            unfinished_sequences = unfinished
-            stopping_criteria = Mock(return_value=0)
-            scores = None
-            for _ in range(5):
-                input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
-                unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, scores)
-            return input_ids
-
-        previous = sys.gettrace()
-        steps = []
-        with evaluator.trace_greedy_steps(torch, sample, 3, steps, limit=1):
-            self.assertIs(sample(), appended)
-        self.assertIs(sys.gettrace(), previous)
-        self.assertEqual(len(steps), 1)
-        self.assertEqual(torch.cuda.synchronize.call_count, 2)
-        self.assertEqual(steps[0]["post_processor_cpu_argmax"], 15)
-        self.assertEqual(steps[0]["cuda_selected_after_padding"], 15)
-        self.assertEqual(steps[0]["suffix_before_cat"], [])
-        self.assertEqual(steps[0]["suffix_after_cat"], [15])
-
-    def test_first_trace_divergence(self):
-        valid = {
-            "step": 1, "unfinished": True, "post_processor_cpu_argmax": 15,
-            "cuda_selected_after_padding": 15, "suffix_before_cat": [], "suffix_after_cat": [15],
-        }
+    def test_smoke_fails_if_either_probe_fails_and_reports_both(self):
         corrupt = 9223231297218904063
-        for update, final, stage in (
-            ({}, [15], None),
-            ({"cuda_selected_after_padding": corrupt}, [corrupt], "cuda_selection_or_padding"),
-            ({"suffix_after_cat": [corrupt]}, [corrupt], "cat"),
-            ({"suffix_before_cat": [corrupt]}, [corrupt], "before_cat_changed_prior_suffix"),
-            ({}, [corrupt], "after_last_traced_cat_or_readback"),
-            ({"unfinished": False, "cuda_selected_after_padding": 128009, "suffix_after_cat": [128009]},
-             [128009], None),
+        for failed_probe, failure in (
+            (0, ("", [], False)),
+            (1, ("nonsense", list(range(16)), True)),
+            (0, ("UNANSWERABLE", [7, 128009], False)),
+            (1, ("UNANSWERABLE", list(range(16)), True)),
+            (0, evaluator.InvalidGeneratedTokens([corrupt], False)),
         ):
-            with self.subTest(stage=stage):
-                result = evaluator.first_trace_divergence([{**valid, **update}], final, 128009)
-                self.assertEqual(result, {"step": 1, "stage": stage} if stage else None)
-
-    def test_controlled_diagnostic_reruns_only_corrupt_return_modes(self):
-        torch = SimpleNamespace(cuda=Mock())
-        inputs = {"input_ids": Mock(shape=(1, 3)), "attention_mask": Mock()}
-        config = SimpleNamespace(max_new_tokens=16, do_sample=False, num_beams=1)
-        model, tokenizer = Mock(), Mock()
-        corrupt = 9223231297218904063
-        bad, good = MagicMock(), MagicMock()
-        bad.__getitem__.side_effect = lambda index: Mock(
-            tolist=Mock(return_value=[1, 2, 3, corrupt] if index == 0 else [corrupt]),
-        )
-        good.__getitem__.return_value.tolist.return_value = [15]
-        structured = SimpleNamespace(sequences=bad, past_key_values=None)
-        model.generate.side_effect = [structured, good, structured]
-
-        def trace(_torch, _sample, _length, steps):
-            steps.append({
-                "step": 1, "unfinished": True, "post_processor_cpu_argmax": 15,
-                "cuda_selected_after_padding": 15, "suffix_before_cat": [], "suffix_after_cat": [corrupt],
-            })
-            return closing(Mock())
-
-        with patch.object(evaluator, "trace_greedy_steps", side_effect=trace) as traced, \
-                patch.object(evaluator, "log_generation") as log:
-            status = evaluator.diagnose_generation(
-                torch, model, tokenizer, inputs, config, {128009}, 128009, {15, 128009}, 128256,
-            )
-        self.assertEqual(status, 1)
-        traced.assert_called_once()
-        tokenizer.decode.assert_not_called()
-        configs = [call.kwargs["generation_config"] for call in model.generate.call_args_list]
-        self.assertEqual([(item.return_dict_in_generate, item.output_logits) for item in configs],
-                         [(True, True), (False, False), (True, True)])
-        self.assertTrue(all(item.max_new_tokens == 16 and not item.do_sample and item.num_beams == 1
-                            for item in configs))
-        self.assertFalse(hasattr(config, "output_logits"))
-        event, report = log.call_args.args
-        self.assertEqual(event, "llama_job1808_trace")
-        self.assertEqual(report["final_generated_token_ids"], [corrupt])
-        self.assertEqual(report["final_sequence"], [1, 2, 3, corrupt])
-        self.assertEqual(report["first_divergence"], {"step": 1, "stage": "cat"})
-
-    def test_smoke_rejects_invalid_wrong_or_truncated_output(self):
-        for raw, ids, hit_limit in (
-            ("", [], False),
-            ("nonsense", list(range(16)), True),
-            ("UNANSWERABLE", [7, 128009], False),
-            ("ANSWERABLE", list(range(16)), True),
-        ):
-            with self.subTest(raw=raw, hit_limit=hit_limit):
+            with self.subTest(probe=failed_probe, failure=failure):
                 torch = SimpleNamespace(cuda=Mock())
                 torch.cuda.max_memory_allocated.return_value = 0
                 torch.cuda.max_memory_reserved.return_value = 0
                 gpus = [SimpleNamespace(name="A100")] * 2
-                with patch.object(evaluator, "load_generator", return_value=Mock(
-                    return_value=(raw, ids, hit_limit),
-                )), patch("builtins.print") as output:
+                outcomes = [("ANSWERABLE", [7, 128009], False),
+                            ("UNANSWERABLE", [8, 128009], False)]
+                outcomes[failed_probe] = failure
+                generate = Mock(side_effect=outcomes)
+                with patch.object(evaluator, "load_generator", return_value=generate), patch("builtins.print") as output:
                     status = evaluator.smoke_test(torch, object(), gpus, evaluator.gpu_device_map(80))
                 self.assertEqual(status, 1)
-                self.assertEqual(json.loads(output.call_args.args[0])["generated_token_ids"], ids)
+                self.assertEqual(generate.call_count, 2)
+                report = json.loads(output.call_args.args[0])
+                self.assertFalse(report["passed"])
+                failed = report["responses"][failed_probe]
+                self.assertFalse(failed["passed"])
+                self.assertTrue(report["responses"][1 - failed_probe]["passed"])
+                if isinstance(failure, evaluator.InvalidGeneratedTokens):
+                    self.assertEqual(failed["generated_token_ids"], [corrupt])
+                    self.assertEqual(failed["prediction"], "INVALID")
+                    self.assertIsNone(failed["raw_response"])
+                    self.assertIn("outside the tokenizer vocabulary", failed["error"])
+                else:
+                    self.assertEqual(failed["generated_token_ids"], failure[1])
+                    self.assertEqual(failed["hit_token_limit"], failure[2])
 
 
 if __name__ == "__main__":
