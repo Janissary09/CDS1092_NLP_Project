@@ -338,6 +338,78 @@ class LlamaEvaluationTests(unittest.TestCase):
         for module in modules:
             module.register_forward_hook.return_value.remove.assert_called_once()
 
+    def test_boundary_diagnostic_compares_aligned_input_and_checks_residual_when_needed(self):
+        for aligned, equal, difference in (([0.0, 0.0], False, 2.0), ([2.0, -1.0], True, 0.0)):
+            with self.subTest(aligned=aligned):
+                torch, transformers, model, _, _, inputs, _ = self.generator_fixture()
+                torch.cuda = Mock()
+                layer39 = Mock()
+                layer40 = Mock()
+                model.model = SimpleNamespace(layers={39: layer39, 40: layer40})
+                output_hooks = [
+                    (layer39, [2.0, -1.0], "cuda:0"),
+                    (layer40.self_attn, [-2.0, 1.0], "cuda:1"),
+                    (layer40.mlp, [0.0, 0.0], "cuda:1"),
+                    (layer40, [0.0, 0.0], "cuda:1"),
+                ]
+                input_hooks = [
+                    (layer40.input_layernorm, aligned),
+                    (layer40.post_attention_layernorm, [0.0, 0.0]),
+                ]
+
+                def tensor(values, device):
+                    result = Mock(shape=(1, 1, 2), dtype="bf16", device=device)
+                    snapshot = result.detach.return_value.cpu.return_value.float.return_value.flatten.return_value
+
+                    def read():
+                        self.assertEqual([call.args for call in torch.cuda.synchronize.call_args_list],
+                                         [(0,), (1,)])
+                        return values
+
+                    snapshot.tolist.side_effect = read
+                    return result
+
+                def forward(**_kwargs):
+                    for module, values in input_hooks:
+                        module.register_forward_pre_hook.call_args.args[0](
+                            module, (tensor(values, "cuda:1"),),
+                        )
+                    for module, values, device in output_hooks:
+                        output = tensor(values, device)
+                        if module is layer40.self_attn:
+                            output = (output, None)
+                        module.register_forward_hook.call_args.args[0](module, (), output)
+
+                model.side_effect = forward
+                inspect = evaluator.load_generator(torch, transformers, evaluator.gpu_device_map(80),
+                                                   boundary_diagnostic=True)
+                with patch.object(evaluator, "log_generation") as log:
+                    inspect("prompt")
+                transformers.LlamaForCausalLM.from_pretrained.assert_called_once()
+                model.assert_called_once_with(**inputs, use_cache=True, logits_to_keep=1, return_dict=True)
+                model.generate.assert_not_called()
+                layer40.register_forward_pre_hook.assert_not_called()
+                events = [call.args for call in log.call_args_list]
+                reports = {report["checkpoint"]: report for event, report in events
+                           if event == "llama_boundary_activation"}
+                comparison, = [report for event, report in events if event == "llama_boundary_comparison"]
+                self.assertEqual(comparison, {
+                    "expected_devices": True, "same_shape": True, "exactly_equal": equal,
+                    "max_abs_difference_finite_pairs": difference,
+                })
+                self.assertEqual(reports["layer39_output"]["zero_count"], 0)
+                self.assertEqual(reports["layer40_input"]["zero_count"], 0 if equal else 2)
+                self.assertEqual(reports["layer40_output"]["zero_count"], 2)
+                self.assertEqual(len(reports), 6 if equal else 3)
+                if equal:
+                    self.assertEqual(reports["layer40_attention_output"]["finite_min"], -2.0)
+                    self.assertEqual(reports["layer40_post_attention_residual"]["zero_count"], 2)
+                    self.assertEqual(reports["layer40_mlp_output"]["zero_count"], 2)
+                for module, _ in input_hooks:
+                    module.register_forward_pre_hook.return_value.remove.assert_called_once()
+                for module, _, _ in output_hooks:
+                    module.register_forward_hook.return_value.remove.assert_called_once()
+
     def test_smoke_fails_if_either_probe_fails_and_reports_both(self):
         corrupt = 9223231297218904063
         for failed_probe, failure in (

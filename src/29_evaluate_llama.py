@@ -114,8 +114,13 @@ def inspect_forward_logits(torch, model, inputs):
     }
 
 
-def activation_statistics(tensor):
-    values = tensor.detach().cpu().float().flatten().tolist()
+def activation_values(tensor):
+    return tensor.detach().cpu().float().flatten().tolist()
+
+
+def activation_statistics(tensor, *, values=None):
+    if values is None:
+        values = activation_values(tensor)
     finite = [value for value in values if math.isfinite(value)]
     return {
         "shape": list(tensor.shape), "dtype": str(tensor.dtype), "device": str(tensor.device),
@@ -167,7 +172,67 @@ def inspect_layer_activations(torch, model, inputs):
             })
 
 
-def load_generator(torch, transformers, device_map, *, forward_diagnostic=False, activation_diagnostic=False):
+def inspect_layer_boundary(torch, model, inputs):
+    """Job 1812 diagnostic. Observe the dispatched block without changing its hooks."""
+    layer39, layer40 = model.model.layers[39], model.model.layers[40]
+    captured = {}
+
+    def record(name):
+        def hook(_module, _args, value):
+            captured[name] = value[0] if isinstance(value, tuple) else value
+        return hook
+
+    def record_input(name):
+        def hook(_module, args):
+            captured[name] = args[0]
+        return hook
+
+    with ExitStack() as hooks:
+        # A pre-hook on the block itself would run before Accelerate's forward wrapper.
+        # Its first RMSNorm sees the same hidden states as the aligned input residual.
+        for module, name in (
+            (layer40.input_layernorm, "layer40_input"),
+            (layer40.post_attention_layernorm, "layer40_post_attention_residual"),
+        ):
+            hooks.callback(module.register_forward_pre_hook(record_input(name)).remove)
+        for module, name in (
+            (layer39, "layer39_output"), (layer40, "layer40_output"),
+            (layer40.self_attn, "layer40_attention_output"), (layer40.mlp, "layer40_mlp_output"),
+        ):
+            hooks.callback(module.register_forward_hook(record(name)).remove)
+        model(**inputs, use_cache=True, logits_to_keep=1, return_dict=True)
+
+    synchronize_both_gpus(torch)
+    names = ("layer39_output", "layer40_input", "layer40_output")
+    snapshots = {}
+    for name in names:
+        values = snapshots[name] = activation_values(captured[name])
+        log_generation("llama_boundary_activation", {
+            "checkpoint": name, **activation_statistics(captured[name], values=values),
+        })
+
+    source, destination = (snapshots[name] for name in names[:2])
+    source_tensor, destination_tensor = (captured[name] for name in names[:2])
+    same_shape = source_tensor.shape == destination_tensor.shape
+    log_generation("llama_boundary_comparison", {
+        "expected_devices": str(source_tensor.device) == "cuda:0" and str(destination_tensor.device) == "cuda:1",
+        "same_shape": same_shape,
+        "exactly_equal": same_shape and source == destination,
+        "max_abs_difference_finite_pairs": max(
+            (abs(a - b) for a, b in zip(source, destination) if math.isfinite(a) and math.isfinite(b)),
+            default=None,
+        ) if same_shape else None,
+    })
+    output = snapshots["layer40_output"]
+    if any(value != 0.0 and math.isfinite(value) for value in destination) and output and not any(output):
+        for name in ("layer40_attention_output", "layer40_post_attention_residual", "layer40_mlp_output"):
+            log_generation("llama_boundary_activation", {
+                "checkpoint": name, **activation_statistics(captured[name]),
+            })
+
+
+def load_generator(torch, transformers, device_map, *, forward_diagnostic=False,
+                   activation_diagnostic=False, boundary_diagnostic=False):
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
     if not tokenizer.chat_template:
         raise ValueError("The local Llama tokenizer is missing its native chat template")
@@ -229,6 +294,9 @@ def load_generator(torch, transformers, device_map, *, forward_diagnostic=False,
             [{"role": "user", "content": prompt}],
             add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt",
         ).to(input_device)
+        if boundary_diagnostic:
+            inspect_layer_boundary(torch, model, inputs)
+            return
         if activation_diagnostic:
             inspect_layer_activations(torch, model, inputs)
             return
@@ -343,6 +411,7 @@ def main():
     mode.add_argument("--smoke-test", action="store_true")
     mode.add_argument("--diagnose-forward", action="store_true")
     mode.add_argument("--diagnose-activations", action="store_true")
+    mode.add_argument("--diagnose-boundary", action="store_true")
     parser.add_argument("--run-id", choices=["run_01"])
     args = parser.parse_args()
     if (args.dataset is None) == (args.run_id is not None):
@@ -366,7 +435,7 @@ def main():
     accelerate_version = version("accelerate")
     config = load_config()
     device_map = gpu_device_map(config["num_hidden_layers"])
-    if args.smoke_test or args.diagnose_forward or args.diagnose_activations:
+    if args.dataset is None:
         print(json.dumps({
             "torch_version": str(torch.__version__), "cuda_version": torch.version.cuda,
             "transformers_version": transformers.__version__,
@@ -375,8 +444,11 @@ def main():
             "tokenizers_version": version("tokenizers"), "safetensors_version": version("safetensors"),
             "device_map": device_map,
         }, indent=2), file=sys.stderr)
-        if args.diagnose_activations:
-            inspect_activations = load_generator(torch, transformers, device_map, activation_diagnostic=True)
+        if args.diagnose_activations or args.diagnose_boundary:
+            inspect_activations = load_generator(
+                torch, transformers, device_map, activation_diagnostic=args.diagnose_activations,
+                boundary_diagnostic=args.diagnose_boundary,
+            )
             inspect_activations(shared.PROMPT.format(question=SMOKE_PROBES[0][0]))
             return 0
         if args.diagnose_forward:
