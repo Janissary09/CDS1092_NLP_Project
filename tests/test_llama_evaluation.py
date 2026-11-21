@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = spec_from_file_location("evaluate_gemma", ROOT / "src/29_evaluate_llama.py")
+spec = spec_from_file_location("evaluate_llama", ROOT / "src/29_evaluate_llama.py")
 evaluator = module_from_spec(spec)
 spec.loader.exec_module(evaluator)
 protocol = evaluator.shared
@@ -82,7 +82,9 @@ class LlamaEvaluationTests(unittest.TestCase):
                                 inference_mode=lambda: lambda function: function)
         transformers = SimpleNamespace(AutoTokenizer=Mock(), LlamaForCausalLM=Mock(),
                                        GenerationConfig=Mock())
-        model = transformers.LlamaForCausalLM.from_pretrained.return_value.eval.return_value
+        model = Mock()
+        loading_info = {}
+        transformers.LlamaForCausalLM.from_pretrained.return_value = model, loading_info
         model.is_quantized = False
         model.parameters.return_value = [
             SimpleNamespace(device="cuda:0", dtype="bf16"), SimpleNamespace(device="cuda:1", dtype="bf16"),
@@ -94,6 +96,7 @@ class LlamaEvaluationTests(unittest.TestCase):
         model.generate.return_value = generated
         tokenizer = transformers.AutoTokenizer.from_pretrained.return_value
         tokenizer.chat_template = "native template"
+        tokenizer.convert_tokens_to_ids.return_value = [128000, 128001, 128006, 128007, 128008, 128009]
         tokenizer.pad_token_id = None
         tokenizer.eos_token_id = 128009
         inputs = {"input_ids": SimpleNamespace(shape=(1, 3)), "attention_mask": object()}
@@ -111,7 +114,7 @@ class LlamaEvaluationTests(unittest.TestCase):
         tokenizer.apply_chat_template.return_value.to.assert_called_once_with("cuda:0")
         transformers.LlamaForCausalLM.from_pretrained.assert_called_once_with(
             evaluator.MODEL_PATH, local_files_only=True, dtype="bf16", device_map=device_map,
-            use_safetensors=True,
+            use_safetensors=True, output_loading_info=True,
         )
         transformers.GenerationConfig.assert_called_once_with(
             do_sample=False, num_beams=1, max_new_tokens=16, eos_token_id=[128001, 128009],
@@ -124,8 +127,27 @@ class LlamaEvaluationTests(unittest.TestCase):
         )
         self.assertEqual((protocol.parse_label(raw), ids, hit_limit), ("INVALID", [15, 128009], False))
 
+        generated.__getitem__.return_value.tolist.return_value = [15] * 16
+        self.assertTrue(generate(prompt)[2])
+        tokenizer.decode.assert_called_with(
+            [15] * 16, skip_special_tokens=False, clean_up_tokenization_spaces=False,
+        )
+
+        for key in ("missing_keys", "mismatched_keys", "unexpected_keys", "error_msgs"):
+            with self.subTest(load_problem=key), patch.dict(loading_info, {key: ["test detail"]}):
+                with self.assertRaisesRegex(RuntimeError, key):
+                    evaluator.load_generator(torch, transformers, device_map)
+
+        with patch.object(model.generation_config, "eos_token_id", 128001):
+            with self.assertRaisesRegex(ValueError, "end-of-turn"):
+                evaluator.load_generator(torch, transformers, device_map)
+
         model.parameters.return_value[1].device = "cpu"
         with self.assertRaisesRegex(RuntimeError, "exactly two CUDA GPUs"):
+            evaluator.load_generator(torch, transformers, device_map)
+
+        tokenizer.convert_tokens_to_ids.return_value = [0] * 6
+        with self.assertRaisesRegex(ValueError, "special-token IDs"):
             evaluator.load_generator(torch, transformers, device_map)
 
     def test_smoke_reports_memory_on_both_gpus(self):
@@ -141,6 +163,25 @@ class LlamaEvaluationTests(unittest.TestCase):
         report = json.loads(output.call_args.args[0])
         self.assertEqual([gpu["load_peak_allocated_gib"] for gpu in report["gpus"]], [65, 66])
         self.assertEqual([gpu["combined_peak_allocated_gib"] for gpu in report["gpus"]], [67, 68])
+
+    def test_smoke_rejects_invalid_wrong_or_truncated_output(self):
+        for raw, ids, hit_limit in (
+            ("", [], False),
+            ("nonsense", list(range(16)), True),
+            ("UNANSWERABLE", [7, 128009], False),
+            ("ANSWERABLE", list(range(16)), True),
+        ):
+            with self.subTest(raw=raw, hit_limit=hit_limit):
+                torch = SimpleNamespace(cuda=Mock())
+                torch.cuda.max_memory_allocated.return_value = 0
+                torch.cuda.max_memory_reserved.return_value = 0
+                gpus = [SimpleNamespace(name="A100")] * 2
+                with patch.object(evaluator, "load_generator", return_value=Mock(
+                    return_value=(raw, ids, hit_limit),
+                )), patch("builtins.print") as output:
+                    status = evaluator.smoke_test(torch, object(), gpus, evaluator.gpu_device_map(80))
+                self.assertEqual(status, 1)
+                self.assertEqual(json.loads(output.call_args.args[0])["generated_token_ids"], ids)
 
 
 if __name__ == "__main__":

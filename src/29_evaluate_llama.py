@@ -8,6 +8,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
 import signal
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,10 +70,28 @@ def load_generator(torch, transformers, device_map):
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
     if not tokenizer.chat_template:
         raise ValueError("The local Llama tokenizer is missing its native chat template")
-    model = transformers.LlamaForCausalLM.from_pretrained(
+    special_tokens = {
+        "<|begin_of_text|>": 128000,
+        "<|end_of_text|>": 128001,
+        "<|start_header_id|>": 128006,
+        "<|end_header_id|>": 128007,
+        "<|eom_id|>": 128008,
+        "<|eot_id|>": 128009,
+    }
+    if tokenizer.convert_tokens_to_ids(list(special_tokens)) != list(special_tokens.values()):
+        raise ValueError("Unexpected Llama 3 special-token IDs in the local tokenizer")
+    model, loading_info = transformers.LlamaForCausalLM.from_pretrained(
         MODEL_PATH, local_files_only=True, dtype=torch.bfloat16,
-        device_map=device_map, use_safetensors=True,
-    ).eval()
+        device_map=device_map, use_safetensors=True, output_loading_info=True,
+    )
+    problems = {
+        key: loading_info[key]
+        for key in ("missing_keys", "mismatched_keys", "unexpected_keys", "error_msgs")
+        if loading_info.get(key)
+    }
+    if problems:
+        raise RuntimeError(f"Llama checkpoint load was incomplete or incompatible: {problems}")
+    model.eval()
     devices = {torch.device("cuda:0"), torch.device("cuda:1")}
     parameters = list(model.parameters())
     if (getattr(model, "is_quantized", False)
@@ -82,8 +101,8 @@ def load_generator(torch, transformers, device_map):
     # Preserve the checkpoint's EOS IDs, including the native end-of-turn token.
     eos = model.generation_config.eos_token_id
     eos_ids = {eos} if isinstance(eos, int) else set(eos or ())
-    if not eos_ids:
-        raise ValueError("Llama generation configuration has no EOS tokens")
+    if special_tokens["<|eot_id|>"] not in eos_ids:
+        raise ValueError("Llama generation configuration is missing the native end-of-turn EOS token")
     pad = tokenizer.pad_token_id
     if pad is None:
         pad = tokenizer.eos_token_id
@@ -118,6 +137,7 @@ def smoke_test(torch, transformers, gpus, device_map):
     load_peaks = [torch.cuda.max_memory_allocated(index) for index in range(len(gpus))]
     question = "A basket contains 4 apples. Two apples are added. How many apples are in the basket?"
     raw, ids, hit_limit = generate(shared.PROMPT.format(question=question))
+    prediction = shared.parse_label(raw)
     for index in range(len(gpus)):
         torch.cuda.synchronize(index)
     print(json.dumps({
@@ -128,12 +148,10 @@ def smoke_test(torch, transformers, gpus, device_map):
              "combined_peak_reserved_gib": torch.cuda.max_memory_reserved(index) / 1024**3}
             for index, gpu in enumerate(gpus)
         ],
-        "prediction": shared.parse_label(raw), "raw_response": raw,
+        "prediction": prediction, "raw_response": raw,
         "generated_token_ids": ids, "hit_token_limit": hit_limit,
     }, indent=2))
-    if not ids:
-        raise RuntimeError("Smoke test produced no tokens")
-    return 0
+    return int(prediction != "ANSWERABLE" or hit_limit)
 
 
 def main():
@@ -165,6 +183,14 @@ def main():
     config = load_config()
     device_map = gpu_device_map(config["num_hidden_layers"])
     if args.smoke_test:
+        print(json.dumps({
+            "torch_version": str(torch.__version__), "cuda_version": torch.version.cuda,
+            "transformers_version": transformers.__version__,
+            "transformers_distribution_url": transformers_distribution_url(),
+            "accelerate_version": accelerate_version,
+            "tokenizers_version": version("tokenizers"), "safetensors_version": version("safetensors"),
+            "device_map": device_map,
+        }, indent=2), file=sys.stderr)
         return smoke_test(torch, transformers, gpus, device_map)
 
     rows, dataset_hash = shared.load_dataset(ROOT, args.dataset)
