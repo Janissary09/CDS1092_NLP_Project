@@ -8,6 +8,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
 import signal
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -114,10 +115,11 @@ def smoke_test(torch, generate, gpu, load_peak):
     for question, expected in SMOKE_PROBES:
         raw, ids, hit_limit = generate(shared.PROMPT.format(question=question))
         prediction = shared.parse_label(raw)
+        passed = bool(ids and prediction == expected and not hit_limit)
         responses.append({
             "expected": expected, "prediction": prediction, "raw_response": raw,
             "generated_token_ids": ids, "hit_token_limit": hit_limit,
-            "passed": bool(ids and prediction == expected and not hit_limit),
+            "passed": passed, "status": "PASS" if passed else "FAIL",
         })
 
     torch.cuda.synchronize()
@@ -138,9 +140,13 @@ def main():
     mode.add_argument("--dataset", choices=shared.DATASETS)
     mode.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--run-id", choices=["run_01"])
+    parser.add_argument("--allow-failed-smoke", action="store_true",
+                        help="Continue a dataset evaluation if either smoke probe fails")
     args = parser.parse_args()
     if (args.dataset is None) == (args.run_id is not None):
         parser.error("Use --smoke-test alone or --dataset with --run-id run_01")
+    if args.smoke_test and args.allow_failed_smoke:
+        parser.error("--allow-failed-smoke requires --dataset")
 
     import torch
     import transformers
@@ -161,8 +167,11 @@ def main():
     torch.cuda.synchronize()
     load_peak = torch.cuda.max_memory_allocated()
     smoke_status = smoke_test(torch, generate, gpu, load_peak)
-    if args.smoke_test or smoke_status:
+    if args.smoke_test or (smoke_status and not args.allow_failed_smoke):
         return smoke_status
+    if smoke_status:
+        print("Smoke test failed. Continuing benchmark evaluation with --allow-failed-smoke.",
+              file=sys.stderr, flush=True)
 
     rows, dataset_hash = shared.load_dataset(ROOT, args.dataset)
     output = output_path(ROOT, args.dataset, args.run_id)

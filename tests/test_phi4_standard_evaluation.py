@@ -137,6 +137,7 @@ class StandardPhi4EvaluationTests(unittest.TestCase):
         rows = [{"text": "First?", "label": "ANSWERABLE"},
                 {"text": "Second?", "label": "UNANSWERABLE"}]
         answers = [("ANSWERABLE", [1, 100265], False), ("UNANSWERABLE", [2, 100265], False)]
+        punctuated = ("UNANSWERABLE.", [2, 3, 100265], False)
         probes = [evaluator.shared.PROMPT.format(question=question) for question, _ in evaluator.SMOKE_PROBES]
 
         with tempfile.TemporaryDirectory() as directory:
@@ -151,11 +152,14 @@ class StandardPhi4EvaluationTests(unittest.TestCase):
                     patch.object(evaluator, "transformers_distribution_url", return_value=None), \
                     patch.object(evaluator.shared, "load_dataset", return_value=(rows, "dataset hash")), \
                     patch.object(evaluator.shared, "model_fingerprint", return_value="weights hash"), \
-                    patch.object(evaluator.signal, "signal"), patch("builtins.print"):
-                failed = load.return_value = Mock(side_effect=[answers[0], ("UNANSWERABLE", [2] * 16, True)])
+                    patch.object(evaluator.signal, "signal"), patch("builtins.print") as output:
+                failed = load.return_value = Mock(side_effect=[answers[0], punctuated])
                 self.assertEqual(evaluator.main(), 1)
                 self.assertEqual([call.args[0] for call in failed.call_args_list], probes)
                 self.assertFalse(path.exists())
+                smoke = json.loads(output.call_args.args[0])
+                self.assertEqual([probe["status"] for probe in smoke["responses"]], ["PASS", "FAIL"])
+                self.assertEqual(smoke["responses"][1]["prediction"], "INVALID")
 
                 interrupted = load.return_value = Mock(side_effect=[*answers, answers[0], RuntimeError("interrupted")])
                 with self.assertRaisesRegex(RuntimeError, "interrupted"):
@@ -163,15 +167,24 @@ class StandardPhi4EvaluationTests(unittest.TestCase):
                 self.assertEqual([call.args[0] for call in interrupted.call_args_list[:2]], probes)
                 self.assertTrue((path / "checkpoint.sqlite3").is_file())
 
-                resumed = load.return_value = Mock(side_effect=[*answers, answers[1]])
-                self.assertEqual(evaluator.main(), 0)
+                resumed = load.return_value = Mock(side_effect=[answers[0], punctuated, punctuated])
+                with patch.object(sys, "argv", [*sys.argv, "--allow-failed-smoke"]):
+                    self.assertEqual(evaluator.main(), 0)
                 self.assertEqual([call.args[0] for call in resumed.call_args_list],
                                  [*probes, evaluator.shared.PROMPT.format(question="Second?")])
                 self.assertEqual(load.call_count, 3)
             self.assertTrue((path / "predictions.csv").is_file())
             self.assertTrue((path / "confusion_matrix.csv").is_file())
             metrics = json.loads((path / "metrics.json").read_text(encoding="utf-8"))
-            self.assertEqual(metrics["accuracy"], 1.0)
+            self.assertEqual(metrics["accuracy"], 0.5)
+            self.assertEqual(metrics["num_invalid"], 1)
             self.assertEqual(metrics["run"]["model_id"], "microsoft/phi-4")
             self.assertEqual(metrics["run"]["max_new_tokens"], 16)
+
+    def test_standalone_smoke_rejects_override(self):
+        with patch.object(sys, "argv", ["evaluator", "--smoke-test", "--allow-failed-smoke"]), \
+                patch.object(sys, "stderr"):
+            with self.assertRaises(SystemExit) as error:
+                evaluator.main()
+        self.assertEqual(error.exception.code, 2)
 

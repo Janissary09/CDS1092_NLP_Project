@@ -11,9 +11,11 @@ set -Eeuo pipefail
 case "$*" in
     smoke) args=(--smoke-test) ;;
     "umwp run_01"|"sum run_01") args=(--dataset "$1" --run-id "$2") ;;
+    "umwp run_01 --allow-failed-smoke"|"sum run_01 --allow-failed-smoke")
+        args=(--dataset "$1" --run-id "$2" --allow-failed-smoke) ;;
     *)
         echo "Usage: sbatch --time=00:15:00 slurm/evaluate_phi4_standard.sh smoke" >&2
-        echo "       sbatch slurm/evaluate_phi4_standard.sh {umwp|sum} run_01" >&2
+        echo "       sbatch slurm/evaluate_phi4_standard.sh {umwp|sum} run_01 [--allow-failed-smoke]" >&2
         exit 2
         ;;
 esac
