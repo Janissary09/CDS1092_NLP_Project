@@ -12,6 +12,21 @@ venv/
 env/
 .env/
 
+# Local credentials
+.env
+.env.*
+.envrc
+.netrc
+_netrc
+credentials.json
+credentials.local.json
+secrets.json
+secrets.local.json
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Local datasets
 /data/*
 !/data/.gitkeep
@@ -65,3 +80,6 @@ Thumbs.db
 
 # VS Code local settings
 .vscode/
+
+# OpenAI API evaluation checkpoints
+results/api/**/checkpoint.sqlite3
