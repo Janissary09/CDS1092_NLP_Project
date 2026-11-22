@@ -3,6 +3,8 @@
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
+from contextlib import closing
+import sqlite3
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -14,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = spec_from_file_location("evaluate_phi4_standard", ROOT / "src/31_evaluate_phi4_standard.py")
 evaluator = module_from_spec(spec)
 spec.loader.exec_module(evaluator)
+spec = spec_from_file_location("evaluate_phi4_prompt_sensitivity", ROOT / "src/32_evaluate_phi4_prompt_sensitivity.py")
+experiment = module_from_spec(spec)
+spec.loader.exec_module(experiment)
 
 
 class StandardPhi4EvaluationTests(unittest.TestCase):
@@ -187,4 +192,57 @@ class StandardPhi4EvaluationTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as error:
                 evaluator.main()
         self.assertEqual(error.exception.code, 2)
+
+    def test_run_02_prompt_smoke_and_checkpoint_are_isolated(self):
+        original = evaluator.shared.PROMPT
+        modified = original.replace("\nANSWERABLE or UNANSWERABLE.\n", "\nANSWERABLE or UNANSWERABLE\n", 1)
+        self.assertEqual(experiment.PROMPT, modified)
+        self.assertEqual(experiment.shared.PROMPT, original)
+        self.assertEqual(len(original) - len(modified), 1)
+        torch = SimpleNamespace(cuda=Mock(), version=SimpleNamespace(cuda="test"), __version__="test")
+        torch.cuda.device_count.return_value = 1
+        torch.cuda.get_device_properties.return_value = SimpleNamespace(
+            name="NVIDIA A100 80GB", total_memory=80 * 1024**3,
+        )
+        torch.cuda.max_memory_allocated.return_value = 0
+        torch.cuda.max_memory_reserved.return_value = 0
+        transformers = SimpleNamespace(Phi3ForCausalLM=Mock(), __version__="test")
+        config = {"model_type": "phi3", "architectures": ["Phi3ForCausalLM"]}
+        question = "Keep this line intact:\nANSWERABLE or UNANSWERABLE.\nIs it answerable?"
+        row = {"text": question, "label": "ANSWERABLE"}
+        expected_smoke = [modified.format(question=text) for text, _ in evaluator.SMOKE_PROBES]
+        outputs = [("ANSWERABLE", [1], False), ("UNANSWERABLE", [2], False)]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old = evaluator.output_path(root, "umwp", "run_01")
+            old.mkdir(parents=True)
+            results = old / "metrics.json"
+            results.write_text("existing results", encoding="utf-8")
+            with patch.dict(sys.modules, {"torch": torch, "transformers": transformers}), \
+                    patch.object(experiment.base, "ROOT", root), \
+                    patch.object(experiment.base, "MODEL_PATH", root / "models/phi-4"), \
+                    patch.object(experiment.base, "load_config", return_value=config), \
+                    patch.object(experiment.base, "load_generator") as load, \
+                    patch.object(experiment.base, "transformers_distribution_url", return_value=None), \
+                    patch.object(experiment.shared, "load_dataset", return_value=([row], "dataset hash")) as dataset, \
+                    patch.object(experiment.shared, "model_fingerprint", return_value="weights hash"), \
+                    patch.object(experiment.signal, "signal"), patch("builtins.print"):
+                smoke = load.return_value = Mock(side_effect=outputs)
+                with patch.object(sys, "argv", ["experiment", "--smoke-test"]):
+                    self.assertEqual(experiment.main(), 0)
+                self.assertEqual([call.args[0] for call in smoke.call_args_list], expected_smoke)
+                dataset.assert_not_called()
+                benchmark = load.return_value = Mock(side_effect=[*outputs, outputs[0]])
+                with patch.object(sys, "argv", ["experiment", "--dataset", "umwp", "--run-id", "run_02"]):
+                    self.assertEqual(experiment.main(), 0)
+                self.assertEqual([call.args[0] for call in benchmark.call_args_list],
+                                 [*expected_smoke, modified.format(question=question)])
+            path = evaluator.output_path(root, "umwp", "run_02")
+            manifest = json.loads((path / "metrics.json").read_text(encoding="utf-8"))["run"]
+            with closing(sqlite3.connect(path / "checkpoint.sqlite3")) as connection:
+                checkpoint_manifest = json.loads(connection.execute("SELECT config FROM manifest").fetchone()[0])
+            self.assertEqual(manifest, checkpoint_manifest)
+            self.assertEqual(manifest["prompt"], modified)
+            self.assertEqual(manifest["run_id"], "run_02")
+            self.assertEqual(results.read_text(encoding="utf-8"), "existing results")
 
