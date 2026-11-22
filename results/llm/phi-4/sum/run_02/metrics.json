@@ -1,0 +1,64 @@
+{
+  "num_examples": 10944,
+  "num_invalid": 1683,
+  "invalid_rate": 0.15378289473684212,
+  "accuracy": 0.6701388888888888,
+  "precision_unanswerable": 0.8467220683287165,
+  "recall_unanswerable": 0.5027412280701754,
+  "f1_unanswerable": 0.6308909528723771,
+  "positive_class": "UNANSWERABLE",
+  "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero.",
+  "confusion_matrix": [
+    [
+      4583,
+      498,
+      391
+    ],
+    [
+      1429,
+      2751,
+      1292
+    ]
+  ],
+  "confusion_matrix_rows": [
+    "ANSWERABLE",
+    "UNANSWERABLE"
+  ],
+  "confusion_matrix_columns": [
+    "ANSWERABLE",
+    "UNANSWERABLE",
+    "INVALID"
+  ],
+  "run": {
+    "dataset": "sum",
+    "dataset_sha256": "c1e4bac1e1d1f27ab8a6408ac68ae710faf521822bff49a1c5958b027540b1f0",
+    "row_count": 10944,
+    "run_id": "run_02",
+    "model_id": "microsoft/phi-4",
+    "model_path": "models/phi-4",
+    "model_type": "phi3",
+    "model_architectures": [
+      "Phi3ForCausalLM"
+    ],
+    "model_sha256": "ac83258b9494bc0aa13e21e33f1491ccf9eef30f13fdef778772642e67ab98a0",
+    "evaluator_sha256": "fb07da3fe702d01d5492403b15cbd8adf33a9acccd81d314da17c4296d26a936",
+    "base_evaluator_sha256": "2f4df5aba765fae4a18527c7421678d1cc3c34d55778002e4753052d84970c8d",
+    "shared_evaluator_sha256": "292e98e5db749939399e3fea2a6279fd99648160577d968bf4d49a6f689042bb",
+    "prompt": "Determine whether the following math problem can be answered using the information provided.\n\nRespond with exactly one label:\nANSWERABLE or UNANSWERABLE\n\nDo not solve the problem or provide an explanation.\n\nMath problem:\n{question}\n\nLabel:",
+    "chat_template": "Standard Phi-4 native ChatML template, one unchanged benchmark user message",
+    "model_api": "Phi3ForCausalLM",
+    "tokenizer_api": "AutoTokenizer",
+    "dtype": "bfloat16",
+    "quantization": null,
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "requested_temperature": 0,
+    "do_sample": false,
+    "num_beams": 1,
+    "max_new_tokens": 16,
+    "torch_version": "2.11.0+cu128",
+    "transformers_version": "5.22.2",
+    "cuda_version": "12.8",
+    "transformers_distribution_url": null,
+    "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero."
+  }
+}
