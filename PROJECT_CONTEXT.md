@@ -10,7 +10,7 @@ Read [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md) **first** for current status and
 
 The FH Graubünden CDS1092 project predicts **answerability of mathematical word problems**, not their numerical solutions. ANSWERABLE means sufficient information for a unique answer; UNANSWERABLE includes missing, ambiguous, contradictory or insufficient information. Mapping: **ANSWERABLE=0, UNANSWERABLE=1**, positive class UNANSWERABLE. Only question text is input (`README.md`; `src/05_train_bert_run02.py::LABEL_TO_ID`, `compute_metrics`).
 
-The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. BERT, DeBERTa and ModernBERT have completed MATE evaluation. MathBERT and LLM MATE evaluations and the Meta Llama evaluation remain pending.
+The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. All four selected encoders have saved MATE evaluations. The local LLM MATE results in `4c155fe` cover Apertus, Gemma, Mistral, Qwen and standard Phi-4. The Meta Llama 3.1-8B-Instruct Mercury smoke test and all three benchmark runs remain pending.
 
 The sibling LaTeX draft frames FF1 as fine-tuned encoder versus zero-shot classification, FF2 as transfer to external data, and FF3 as error analysis and implications for training and prompting. The comparison measures complete approaches with differing scale, pretraining, and access to task-specific training data. Formal directional hypotheses and a significance protocol are absent from the repository.
 
@@ -18,7 +18,7 @@ Gemma replaces the previously planned Gemini evaluation. The selected roster cov
 
 ## 2. Repository and sources
 
-Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `596029d`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
+Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `4c155fe`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
 
 ```text
 CDS1092_NLP_Project/
@@ -403,7 +403,7 @@ The three runs below completed on 2026-11-24. All 13 result files are available 
 
 Each prediction file contains 9,586 records in benchmark order with unique sequential question IDs and matching text, pair IDs, labels and metadata. Local verification normalized CRLF to LF in question text for the Windows checkout. The confusion matrices reconstructed from predictions matched both saved CSV and JSON. Accuracy, UNANSWERABLE precision/recall/F1, macro-F1, and correct/incorrect counts were recalculated. All runs used CUDA, maximum sequence length 256, evaluation batch size 32, and argmax. BERT loaded the Run 02 `best_model/` export. DeBERTa and ModernBERT loaded their validation-selected `checkpoint-11172/` directories directly.
 
-The initial jobs 1879 through 1882 failed before inference because `sbatch --wrap` used `sh`, which did not support `source`. Explicit Bash resolved that launch issue. MathBERT job 1884 then failed before model loading because `evaluate_dataset()` still allowed only SUM and UMWP, although the CLI already accepted MATE. The local fix checks `DATASET_OUTPUTS` in both paths. The offline regression exercises the real CLI, configuration and dataset loading, and output checks up to the model-runtime import for all three datasets. It also verifies that the default and `both` still select SUM and UMWP. Three new regression tests and 59 existing evaluator tests passed. The fix still needs to reach Mercury before MathBERT Run 04 can be evaluated on MATE.
+The initial jobs 1879 through 1882 failed before inference because `sbatch --wrap` used `sh`, which did not support `source`. Explicit Bash resolved that launch issue. MathBERT job 1884 then failed before model loading because `evaluate_dataset()` still allowed only SUM and UMWP, although the CLI already accepted MATE. The local fix checks `DATASET_OUTPUTS` in both paths. The offline regression exercises the real CLI, configuration and dataset loading, and output checks up to the model-runtime import for all three datasets. It also verifies that the default and `both` still select SUM and UMWP. Three new regression tests and 59 existing evaluator tests passed. The fix was committed in `6377856`. The later MathBERT Run 04 MATE result is available under `results/mathbert/run_04/mate/` from `039fb6f`.
 
 
 ## 14. Zero-shot LLM protocol and completed runs
@@ -473,8 +473,24 @@ The locally untracked smoke artifacts are under `results/api/openai/gpt-6.1-terr
 
 ### Blocked or limited model attempts
 
-- **Meta Llama 3.3 70B Instruct:** `src/29_evaluate_llama.py` targets `meta-llama/Llama-3.3-70B-Instruct` in unquantized BF16 across two Mercury A100s. The reported GPU-transfer issue concerns activations crossing from layer 39 on `cuda:0` to layer 40 on `cuda:1`. The evaluator contains forward, activation, boundary and transfer diagnostics. The boundary probe compares pre-transfer values, Accelerate-aligned inputs and an explicit GPU copy. `src/diagnose_cuda_transfer.py` independently checks host-to-device and both GPU-to-GPU directions with exact value comparisons. There are no saved benchmark metrics or diagnostic logs in this checkout, so the failure mechanism and Mercury's current state remain unverified. Complete the Meta evaluation on Mercury using a smaller single-GPU model if 70B remains unreliable, and record the actual model ID and runtime.
+- **Meta Llama 3.3 70B Instruct:** Mercury CUDA diagnostic job 1894 confirmed both NVIDIA A100 80 GB GPUs were individually accessible. All eight CPU-to-GPU transfers passed and all eight GPU-to-GPU transfers failed. Silent data corruption occurred in both directions with FP32 and BF16. The hardware, driver or system configuration cause remains unconfirmed. This makes the existing unquantized two-GPU 70B setup unreliable. The original evaluator and its forward, activation, boundary and transfer diagnostics are preserved in `src/29_evaluate_llama_70b.py` and `slurm/evaluate_llama_70b.sh`. The standalone CUDA transfer diagnostic and downloaded 70B checkpoint were untouched.
 - **Phi-4-reasoning-plus:** `src/30_evaluate_phi4.py` targets `microsoft/Phi-4-reasoning-plus` with a native template that inserts a reasoning system message. Reasoning text can consume the 16-token budget before a final label, and a completed reasoning trace still fails strict whole-response matching. The diagnostic tests budgets 16/64/256/512 on two probes and can extract a standalone final label after a completed reasoning block. Those diagnostic conditions differ from the benchmark protocol. There is no full saved result, so use the standard Phi-4 artifacts for the completed Microsoft family evaluation.
+
+
+### Meta Llama 3.1-8B-Instruct on Mercury
+
+The replacement is `meta-llama/Llama-3.1-8B-Instruct`, reported downloaded on Mercury at `models/Llama-3.1-8B-Instruct` with four safetensors shards (about 15 GiB). The primary wrapper uses Conda `cds1092` and requests one A100. The evaluator checks for exactly one visible BF16-capable A100 80 GB and verifies all unquantized BF16 weights and model buffers are on `cuda:0`. CPU offloading is disabled.
+
+The evaluator uses the original frozen user prompt, native chat template, greedy decoding (temperature 0, one beam), and a 16-token cap. It removes only the terminal EOS when decoding and uses the shared strict label parser, INVALID policy and metrics. The shared loader checks the fixed SUM, UMWP and MATE CSV hashes. Each `results/llm/llama-3.1-8b-instruct/<dataset>/run_01/` directory uses the existing SQLite checkpoint, model and source fingerprints, predictions, metrics and confusion-matrix conventions. Resume with the same dataset and run ID.
+
+After the integration is available on Mercury, run the smoke test from the project root.
+
+```bash
+cd ~/projects/CDS1092_NLP_Project
+sbatch --time=00:15:00 slurm/evaluate_llama.sh smoke
+```
+
+The smoke test loads the single-GPU checkpoint once, verifies placement, and runs two synthetic prompts with benchmark settings. It requires both expected strict labels without hitting the cap and logs decoded text, token IDs, cap flags and peak memory. The smoke test and benchmark runs are pending. Offline checks covered syntax and CLI routing, fixed dataset hashes, isolated result paths, mocked placement and decoding, strict smoke pass/fail behavior and shared checkpoint regressions.
 
 ## 15. Repository inventory
 
@@ -486,7 +502,8 @@ The locally untracked smoke artifacts are under `results/api/openai/gpt-6.1-terr
 | `src/26_evaluate_apertus.py` | Apertus v1.5-8B | `slurm/evaluate_apertus.sh` |
 | `src/27_evaluate_mistral.py` | Mistral Small 3.2 24B Instruct | `slurm/evaluate_mistral.sh` |
 | `src/28_evaluate_gemma.py` | Gemma 3 27B IT | `slurm/evaluate_gemma.sh` |
-| `src/29_evaluate_llama.py` | Llama 3.3 70B Instruct and multi-GPU debugging | `slurm/evaluate_llama.sh` |
+| `src/29_evaluate_llama.py` | Llama 3.1-8B-Instruct single-GPU evaluation and smoke | `slurm/evaluate_llama.sh` |
+| `src/29_evaluate_llama_70b.py` | Preserved Llama 3.3 70B evaluator and multi-GPU diagnostics | `slurm/evaluate_llama_70b.sh` |
 | `src/30_evaluate_phi4.py` | Phi-4-reasoning-plus and reasoning diagnostic | `slurm/evaluate_phi4.sh` |
 | `src/31_evaluate_phi4_standard.py` | Standard Phi-4 original prompt | `slurm/evaluate_phi4_standard.sh` |
 | `src/32_evaluate_phi4_prompt_sensitivity.py` | Standard Phi-4 modified prompt | `slurm/evaluate_phi4_standard.sh` |

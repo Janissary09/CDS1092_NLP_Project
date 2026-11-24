@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = spec_from_file_location("evaluate_llama", ROOT / "src/29_evaluate_llama.py")
+spec = spec_from_file_location("evaluate_llama", ROOT / "src/29_evaluate_llama_70b.py")
 evaluator = module_from_spec(spec)
 spec.loader.exec_module(evaluator)
 protocol = evaluator.shared
