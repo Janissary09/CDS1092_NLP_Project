@@ -10,7 +10,7 @@ Read [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md) **first** for current status and
 
 The FH Graubünden CDS1092 project predicts **answerability of mathematical word problems**, not their numerical solutions. ANSWERABLE means sufficient information for a unique answer; UNANSWERABLE includes missing, ambiguous, contradictory or insufficient information. Mapping: **ANSWERABLE=0, UNANSWERABLE=1**, positive class UNANSWERABLE. Only question text is input (`README.md`; `src/05_train_bert_run02.py::LABEL_TO_ID`, `compute_metrics`).
 
-The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. All four selected encoders have saved MATE evaluations. The local LLM MATE results in `4c155fe` cover Apertus, Gemma, Mistral, Qwen and standard Phi-4. Meta Llama 3.1-8B-Instruct completed its Mercury smoke test with one classification error. Its three benchmark runs remain pending.
+The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. All four selected encoders have saved MATE evaluations. The local LLM MATE results in `4c155fe` cover Apertus, Gemma, Mistral, Qwen and standard Phi-4. Meta Llama 3.1-8B-Instruct completed SUM Test, UMWP and MATE under the original strict prompt with the failed-smoke override recorded.
 
 The sibling LaTeX draft frames FF1 as fine-tuned encoder versus zero-shot classification, FF2 as transfer to external data, and FF3 as error analysis and implications for training and prompting. The comparison measures complete approaches with differing scale, pretraining, and access to task-specific training data. Formal directional hypotheses and a significance protocol are absent from the repository.
 
@@ -18,7 +18,7 @@ Gemma replaces the previously planned Gemini evaluation. The selected roster cov
 
 ## 2. Repository and sources
 
-Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `5d7bdca`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
+Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `1070238`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
 
 ```text
 CDS1092_NLP_Project/
@@ -459,6 +459,20 @@ Standard `microsoft/phi-4` (14B) is distinct from Phi-4-reasoning-plus. UMWP `ru
 
 Strict results are archived under `results/llm/phi-4/<dataset>/run_02/`. The paired `run_02_cleaned/predictions.csv` files apply researcher-initiated label extraction to the stored generations. Comparison by row confirms that previously invalid responses were replaced by the exact label on the first nonblank line (1,683 SUM and 115 UMWP). All true labels, texts, generated token IDs and cap flags are unchanged. The cleaned scores above are computed from those CSVs. Cite the preserved strict CSVs for verbatim model output. Treat the prompt change and the parser change as separate sensitivity conditions, outside the original frozen-prompt comparison.
 
+### Standard Phi-4 MATE conditions
+
+All conditions cover the same 9,586 rows. Scores are percentages, with UNANSWERABLE as the positive class.
+
+| Condition | Accuracy | Precision | Recall | F1 | INVALID rows | INVALID rate |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Original frozen prompt, strict (`run_01`) | 46.79 | 100.00 | 0.06 | 0.13 | 3,074 | 32.07 |
+| Modified prompt, strict (`run_02`) | 73.47 | 91.81 | 52.37 | 66.69 | 205 | 2.14 |
+| Modified prompt, offline first-line extraction (`run_02_cleaned`) | 75.23 | 91.15 | 55.89 | 69.30 | 0 | 0.00 |
+
+The exact-label parser was applied to the first non-empty line of previously INVALID responses after trimming whitespace. Strict-valid labels were retained. This rule reproduced every archived SUM and UMWP cleanup decision and recovered 205 UNANSWERABLE labels on MATE. The MATE copy retains the complete `raw_response` field on every row. Only `prediction` and `valid` change on rescued rows. The cleaned confusion matrix has rows ANSWERABLE and UNANSWERABLE and columns ANSWERABLE, UNANSWERABLE and INVALID: `[[4533, 260, 0], [2114, 2679, 0]]`. The original strict responses and predictions remain in `run_02`.
+
+New artifacts are `predictions.csv`, `metrics.json` and `confusion_matrix.csv` under `results/llm/phi-4/mate/run_02_cleaned/`. The cleaned results were independently recomputed from reloaded predictions and reconciled against the fixed benchmark IDs, texts, labels and metadata. All protected Phi-4 inputs, including the archived SUM and UMWP cleaned CSVs, retained their hashes.
+
 ### GPT-6.1 Terra API
 
 `src/33_evaluate_openai.py` uses the original prompt with OpenAI Chat Completions, SDK 2.54.0, temperature 0, reasoning effort `none`, `max_completion_tokens=16`, `store=false` and `service_tier=default` (Standard). Tokenization and serving are provider-managed, and generated token IDs are unavailable. Both full runs record all rows received, with the returned ID `gpt-6.1-terra`, all finish reasons `stop`, and zero INVALID outputs.
@@ -504,7 +518,15 @@ sbatch slurm/evaluate_llama.sh umwp run_01 --allow-failed-smoke
 sbatch slurm/evaluate_llama.sh mate run_01 --allow-failed-smoke
 ```
 
-All three benchmarks remain pending. Offline checks passed for the default gate, override metadata, technical error propagation and Bash argument routing. The GPT-6.1 Terra MATE API run was reported in progress locally during this update.
+All three benchmarks completed, with nine archived result files in `1070238` under `results/llm/llama-3.1-8b-instruct/{sum,umwp,mate}/run_01/`. The original frozen prompt and strict parser were used. Each manifest records a failed smoke, the requested override and its application.
+
+| Dataset | Rows | Accuracy (%) | Precision (%) | Recall (%) | F1 (%) | INVALID rows |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| SUM Test | 10,944 | 53.46 | 91.65 | 7.62 | 14.07 | 0 |
+| UMWP | 5,200 | 55.31 | 92.07 | 11.62 | 20.63 | 1 |
+| MATE | 9,586 | 54.14 | 89.31 | 9.41 | 17.03 | 0 |
+
+Independently validated the dataset hashes, saved row order, texts, labels, IDs and metadata (with CRLF normalized for text alignment), strict predictions, score arithmetic and both confusion-matrix formats. Verified the original prompt, greedy decoding, one beam, 16-token cap and the recorded smoke override. The GPT-6.1 Terra MATE API run was reported in progress locally during this update.
 
 
 ## 15. Repository inventory
@@ -542,7 +564,8 @@ All twelve notebooks parse as JSON and contain saved execution outputs with no r
 
 - `results/bert/run_01`?`run_06`, `results/mathbert/run_01`?`run_05`, and `results/{deberta,modernbert}/run_01`?`run_08` hold encoder training artifacts, including failed DeBERTa Run 01. Only the selected runs contain `sum_test/` and `umwp/`.
 - `results/llm/{qwen3.6-27b,apertus-v1.5-8b,mistral-small-3.2-24b,gemma-3-27b-it}/{sum,umwp}/run_01/` contains the frozen strict prediction, metrics and confusion-matrix files.
-- `results/llm/phi-4/{sum,umwp}/{run_02,run_02_cleaned}/` and `results/llm/phi-4/umwp/run_01/` hold the Phi-4 conditions. Cleaned directories contain predictions only.
+- `results/llm/phi-4/{sum,umwp,mate}/{run_02,run_02_cleaned}/` and `results/llm/phi-4/{umwp,mate}/run_01/` hold the Phi-4 conditions. The SUM and UMWP cleaned directories contain predictions only. The MATE cleaned directory also contains metrics and a confusion matrix.
+- `results/llm/llama-3.1-8b-instruct/{sum,umwp,mate}/run_01/` contains the original-prompt strict runs and documented smoke override.
 - `results/api/openai/gpt-6.1-terra/{sum,umwp}/run_01/` and `results/api/openai/gpt-6.1-terra/umwp/limit_10/run_01/` hold API outputs and metadata. SQLite checkpoints are ignored.
 - `results/encoder_training_comparison.md` and `results/final_test_comparison.md` are existing local reports.
 

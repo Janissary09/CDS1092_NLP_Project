@@ -1,0 +1,69 @@
+{
+  "num_examples": 9586,
+  "num_invalid": 0,
+  "invalid_rate": 0.0,
+  "accuracy": 0.7523471729605675,
+  "precision_unanswerable": 0.9115345355563117,
+  "recall_unanswerable": 0.558940121009806,
+  "f1_unanswerable": 0.6929643041903777,
+  "positive_class": "UNANSWERABLE",
+  "invalid_output_policy": "Preserve strict-valid predictions. For strict INVALID responses, apply the same exact uppercase label parser to the first non-empty line after stripping surrounding whitespace. Remaining INVALID predictions follow the existing strict scoring policy.",
+  "confusion_matrix": [
+    [
+      4533,
+      260,
+      0
+    ],
+    [
+      2114,
+      2679,
+      0
+    ]
+  ],
+  "confusion_matrix_rows": [
+    "ANSWERABLE",
+    "UNANSWERABLE"
+  ],
+  "confusion_matrix_columns": [
+    "ANSWERABLE",
+    "UNANSWERABLE",
+    "INVALID"
+  ],
+  "run": {
+    "dataset": "mate",
+    "dataset_sha256": "377f7a28a6b2a5236ce24eeebc889c99ec38ff92c52c9b0a888d71f6542da5b8",
+    "row_count": 9586,
+    "run_id": "run_02_cleaned",
+    "model_id": "microsoft/phi-4",
+    "model_path": "models/phi-4",
+    "model_type": "phi3",
+    "model_architectures": [
+      "Phi3ForCausalLM"
+    ],
+    "model_sha256": "ac83258b9494bc0aa13e21e33f1491ccf9eef30f13fdef778772642e67ab98a0",
+    "evaluator_sha256": "fb07da3fe702d01d5492403b15cbd8adf33a9acccd81d314da17c4296d26a936",
+    "base_evaluator_sha256": "2f4df5aba765fae4a18527c7421678d1cc3c34d55778002e4753052d84970c8d",
+    "shared_evaluator_sha256": "9a1a360dc9f154d3b71910a8370377b4138e99529728d9d79aa87f8f7791cf60",
+    "prompt": "Determine whether the following math problem can be answered using the information provided.\n\nRespond with exactly one label:\nANSWERABLE or UNANSWERABLE\n\nDo not solve the problem or provide an explanation.\n\nMath problem:\n{question}\n\nLabel:",
+    "chat_template": "Standard Phi-4 native ChatML template, one unchanged benchmark user message",
+    "model_api": "Phi3ForCausalLM",
+    "tokenizer_api": "AutoTokenizer",
+    "dtype": "bfloat16",
+    "quantization": null,
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "requested_temperature": 0,
+    "do_sample": false,
+    "num_beams": 1,
+    "max_new_tokens": 16,
+    "torch_version": "2.11.0+cu128",
+    "transformers_version": "5.22.2",
+    "cuda_version": "12.8",
+    "transformers_distribution_url": null,
+    "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero.",
+    "evaluation_condition": "modified_prompt_offline_first_non_empty_line",
+    "source_run_id": "run_02",
+    "source_predictions_path": "results/llm/phi-4/mate/run_02/predictions.csv",
+    "source_predictions_sha256_lf_normalized": "50e1b4190e44874417ba102059eaab24bf3dfbae3dc23da678ac8dd4f160fb8e",
+    "num_predictions_changed": 205
+  }
+}
