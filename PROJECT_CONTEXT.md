@@ -1,309 +1,231 @@
-# CDS1092 NLP — Proje bilgi devri
+# CDS1092 NLP Project: Technical Context
 
-İnceleme tarihi: 17 Kasım 2026. Bu belge mevcut yerel workspace'in kod, notebook, veri ve sonuç dosyalarına dayanır. Training, inference, evaluation veya veri hazırlama scriptleri çalıştırılmadı; veri dosyaları ve kayıtlı predictions salt okunur biçimde incelendi. İnternet kaynaklarının güncel içeriği veya Mercury'nin mevcut durumu doğrulanmadı. “Doğrulanmış” ifadesi yerel dosyalardan doğrulamayı; “öneri” gelecekte yapılabilecek işi anlatır. Bilinmeyen ayrıntılar açıkça belirtilir. Tüm yollar aksi belirtilmedikçe bu proje köküne göredir.
+Last updated: **2026-11-24** (Europe/Zurich).
 
-## 1. Araştırma amacı ve kapsam
+Read [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md) **first** for current status and collaboration instructions. This is the technical reference; [NOTEBOOK_GUIDELINES.md](NOTEBOOK_GUIDELINES.md) defines analysis standards.
 
-**Doğrulanmış tasarım:** Matematiksel word problem metninin tek bir cevabı belirlemeye yeterli bilgi içerip içermediğinin binary classification ile saptanması. Amaç matematik problemini çözmek değildir. `ANSWERABLE` yeterli ve tekil cevap sağlayan bilgi; `UNANSWERABLE` eksik, belirsiz, çelişkili veya yetersiz bilgi anlamındadır. Positive class `UNANSWERABLE`; bütün training scriptlerinin `LABEL_TO_ID` sabiti `{"ANSWERABLE": 0, "UNANSWERABLE": 1}` biçimindedir. Kaynak: `README.md`, `src/05_train_bert_run02.py::compute_metrics`.
+**Maintenance:** Update when verified code, data, methods or results change; preserve useful evidence and cite relative paths/functions. Put mutable session status in PROJECT_PROGRESS.md. Distinguish artifact-verified, user-reported, planned and unknown information. Recheck current local/Mercury state before action. No training, inference or model evaluation was executed for this update.
 
-SUM üzerinde fine-tuned encoder modelleri ile aynı sorular üzerinde general-purpose zero-shot LLM yaklaşımı karşılaştırılacaktır. Planlanan encoder'lar BERT-base, MathBERT, DeBERTa-v3-base ve ModernBERT-base'dir. SUM internal test, UMWP external generalization içindir; private/fresh değerlendirme kümesi README'de olasılık olarak geçer. Uygulanmış encoder yalnızca BERT'tir; MathBERT/DeBERTa/ModernBERT/LLM script veya sonuçları yoktur (`src/`, `results/` envanteri).
+## 1. Research overview
 
-Proje dışındaki ilgili araştırma taslağı `../dokumentation_01/term-paper/documentation.tex` üç soru tanımlar: FF1 encoder–zero-shot LLM performansı; FF2 SUM→UMWP generalization ve LLM karşılaştırması; FF3 hata örüntüleri ve veri/fine-tuning/prompting iyileştirmeleri. Buradaki literatür boşluğu iddiası taslağın beyanıdır; bu incelemede bağımsız literatür taraması yapılmadı. Resmî, yönlü H1/H2 hipotezleri veya istatistiksel kabul ölçütleri bulunmadı. Domain specialization'ın faydası ve cross-dataset performans kaybı araştırılabilecek beklentilerdir; kanıtlanmış hipotez olarak sunulmamalıdır.
+The FH Graubünden CDS1092 project predicts **answerability of mathematical word problems**, not their numerical solutions. ANSWERABLE means sufficient information for a unique answer; UNANSWERABLE includes missing, ambiguous, contradictory or insufficient information. Mapping: **ANSWERABLE=0, UNANSWERABLE=1**, positive class UNANSWERABLE. Only question text is input (`README.md`; `src/05_train_bert_run02.py::LABEL_TO_ID`, `compute_metrics`).
 
-Taslakta beş LLM adı plan olarak verilmiştir (GPT-6.1 Terra, Gemini 3.8 Flash, Llama 4 Scout, Qwen3.6-27B, Apertus v1.5-8B); bunlar çalıştırılmış veya erişilebilirliği doğrulanmış model kimlikleri değildir. Nihai model/API sürümleri, prompt metni, generation parametreleri ve parsing kuralları bilinmiyor. Tasarım yalnızca örneksiz ortak prompt ile `ANSWERABLE`/`UNANSWERABLE` çıktısı istiyor. Kaynak: `../dokumentation_01/term-paper/documentation.tex`, Methodik bölümü.
+The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. Meta Llama and MATE evaluations remain pending.
 
-Ekip: Murat Arikan ve Sinan Özdere; danışman Prof. Corsin Capol (`README.md`). Encoder ve LLM yaklaşımının farklı eğitim verisi, boyut ve pretraining koşulları vardır; sonucu yalnız mimari farkına bağlamamak taslağın metodolojik yaklaşımıdır.
+The sibling LaTeX draft frames FF1 as fine-tuned encoder versus zero-shot classification, FF2 as transfer to external data, and FF3 as error analysis and implications for training and prompting. The comparison measures complete approaches with differing scale, pretraining, and access to task-specific training data. Formal directional hypotheses and a significance protocol are absent from the repository.
 
-## 2. Workspace ve önemli dosyalar
+Gemma replaces the previously planned Gemini evaluation. The selected roster covers the models above, standard Phi-4 and Meta Llama. Team: Murat Arikan, Sinan ?zdere. Supervisor: Prof. Corsin Capol.
 
-Yerel proje: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`. Ayrı Git repository; inceleme başlangıcında HEAD `f8d5e2d` (`Add BERT Run 05 and Run 06 validation results`). Başlangıçta `notebooks/03_bert_training_analysis.ipynb` zaten modified durumundaydı; mevcut yerel sürümü incelendi ve korundu. Local origin fetch/push URL'si `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README Mercury için SSH remote tarif ediyor. Bunlar farklı makinelerdeki remote ayarları olabilir.
+## 2. Repository and sources
+
+Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `9862876`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
 
 ```text
 CDS1092_NLP_Project/
-├── .git/                         Git metadata; araştırma çıktısı değildir
-├── .gitignore
-├── README.md
-├── requirements.txt
-├── PROJECT_CONTEXT.md            Bu bilgi devri
-├── data/
-│   ├── .gitkeep
-│   ├── raw/umwp/StandardDataset.jsonl
-│   └── processed/
-│       ├── sum/{train,validation,test}.csv
-│       └── umwp/test.csv
-├── notebooks/
-│   ├── 01_sum_dataset_analysis.ipynb
-│   ├── 02_umwp_dataset_analysis.ipynb
-│   └── 03_bert_training_analysis.ipynb
-├── src/
-│   ├── 01_inspect_sum.py
-│   ├── 02_analyze_sum_duplicates.py
-│   ├── 03_prepare_sum.py
-│   ├── 04_train_bert_run01.py
-│   ├── 05_train_bert_run02.py
-│   ├── 06_train_bert_run03.py
-│   ├── 07_train_bert_run04.py
-│   ├── 08_prepare_umwp.py
-│   ├── 09_evaluate_bert.py
-│   ├── 10_train_bert_run05.py
-│   └── 11_train_bert_run06.py
-└── results/
-    ├── .gitkeep
-    └── bert/
-        ├── run_01/{training_history.csv,validation_metrics.json}
-        ├── run_02/
-        │   ├── config.json
-        │   ├── training_history.csv
-        │   ├── validation_metrics.json
-        │   ├── sum_test/{metrics.json,confusion_matrix.csv,predictions.csv}
-        │   └── umwp/{metrics.json,confusion_matrix.csv,predictions.csv,duplicate_analysis.csv}
-        └── run_03 … run_06/       Her birinde config.json,
-                                  training_history.csv,validation_metrics.json
+  data/
+    raw/umwp/StandardDataset.jsonl
+    raw/mate/MATE Dataset.csv
+    processed/sum/{train,validation,test}.csv
+    processed/umwp/test.csv
+    processed/mate/{test,excluded_pairs}.csv
+  notebooks/
+    01_sum_dataset_analysis.ipynb
+    02_umwp_dataset_analysis.ipynb
+    03_bert_training_analysis.ipynb
+    04_mathbert_training_analysis.ipynb
+    05_deberta_training_analysis.ipynb
+    06_modernbert_training_analysis.ipynb
+    07_... through 12_...             LLM analyses listed in section 15
+    13_mate_dataset_analysis.ipynb
+  src/                               Data, training and evaluation entry points
+  configs/                           Encoder experiment configurations
+  slurm/                             Batch script and training guide
+  tests/                               Training, evaluation and CUDA diagnostics
+  results/
+    {bert,mathbert,deberta,modernbert}/run_*/
+    llm/                             Local zero-shot evaluations
+    api/openai/                      Hosted GPT-6.1 Terra evaluations
+    encoder_training_comparison.md
+    final_test_comparison.md
 ```
 
-`models/` bu yerel workspace'te **yoktur**. SLURM/sbatch/shell job scriptleri, `.out`/`.log` job kayıtları, environment lockfile veya ayrı test paketi bulunmadı. Yukarıdaki ağaç `.git/` iç yapısı hariç mevcut araştırma dosyalarını kapsar. `../dokumentation_01/` ayrı dokümantasyon repository'sidir: `README.md`, `.gitignore`, `LICENSE`, `term-paper/documentation.tex`, `title.tex`, `packages_and_configuration.tex`, `library.bib`, `documentation.pdf`. Bu belgedeki taslak bilgileri `.tex`/`.bib` kaynaklarından alınmıştır; PDF görsel olarak incelenmedi.
+Successful runs have a training history CSV and validation report JSON. All have a separate configuration JSON except BERT Run 01, whose configuration is embedded in its report. Selected runs also have `sum_test/` and `umwp/` evaluation artifacts. Model weights are absent from this local checkout.
 
-| Dosya | Görev ve önemli giriş noktaları |
+| Source | Purpose / functions |
 | --- | --- |
-| `src/01_inspect_sum.py` | `main`: publisher Parquet dosyalarını ayrı ayrı okur; farklı schema'ların tek loader'da birleşmesini önler; örnek/schema basar, ayrı dataset yazmaz. |
-| `src/02_analyze_sum_duplicates.py` | `load_occurrences`, `has_conflict`, `main`: exact-text overlap ve label conflict analizi; salt okunur. |
-| `src/03_prepare_sum.py` | `build_groups`, `assign_groups`, `expand`, `validate`, `main`: leakage-safe SUM CSV üretimi. |
-| Altı `src/*train_bert*.py` | Her birinde `CONFIG`, `load_split`, `compute_metrics`, `main`; ayrı deney/output adresleri. Run 01 adres istisnası aşağıdadır. |
-| `src/08_prepare_umwp.py` | `question_statistics`, `validate_text`, `main`: raw JSONL→değiştirilmemiş benchmark CSV; `require` kontrolleri. |
-| `src/09_evaluate_bert.py` | `load_dataset`, `calculate_metrics`, `main`: yalnız frozen BERT Run 02; `--dataset sum|umwp`. |
-| `results/bert/run_*/config.json` | Run 02–06 training öncesi kaydedilmiş ayarlar ve Mercury absolute data paths. |
-| `results/bert/run_*/training_history.csv` | Epoch training loss, gradient norm, LR; validation metrikleri; training özeti; sonunda best checkpoint tekrar evaluation satırı. |
-| `results/bert/run_*/validation_metrics.json` | Checkpoint path/F1, yeniden evaluation sonucu, configuration, torch/transformers sürümleri. |
-| `README.md` | Amaç, eski durum özeti, setup ve Mercury/Git kullanım tarifi; güncellik sınırlamaları aşağıdadır. |
+| `src/01_inspect_sum.py` | `main`: publisher Parquets loaded separately because schemas differ; schema/examples, no experiment files. |
+| `src/02_analyze_sum_duplicates.py` | `load_occurrences`, `has_conflict`, `main`: read-only exact duplicate/conflict/overlap inspection. |
+| `src/03_prepare_sum.py` | `build_groups`, `assign_groups`, `expand`, `validate`, `main`: grouped fixed splits. |
+| `src/04_train_bert_run01.py` | BERT baseline; legacy output-path exception below. |
+| `src/05_train_bert_run02.py` | Selected BERT configuration, primary pipeline reference. |
+| `src/06_train_bert_run03.py`, `src/07_train_bert_run04.py` | Seven-epoch LR variants. |
+| `src/10_train_bert_run05.py`, `src/11_train_bert_run06.py` | Exploratory higher-LR five/seven-epoch variants. |
+| All training scripts | `CONFIG`, `load_split`, `compute_metrics`, `main`; train/validation only. |
+| `src/08_prepare_umwp.py` | `require`, `question_statistics`, `validate_text`, `main`: JSONL to unchanged benchmark CSV. |
+| `src/09_evaluate_bert.py` | `load_dataset`, `calculate_metrics`, `main`: frozen Run 02, CLI --dataset sum or umwp. |
+| `src/12_train_mathbert_run01.py` | BERT Run 02 pipeline, MathBERT tokenizer, provenance, overwrite guard. |
+| `src/13_train_mathbert_run02.py` through `src/16_train_mathbert_run05.py`, `src/17_evaluate_mathbert.py` | MathBERT follow-up runs and frozen evaluation. |
+| `src/18_train_deberta_run01.py` through `src/21_test_modernbert.py` | Initial DeBERTa training, diagnostics and retry, and ModernBERT compatibility checks. |
+| `src/22_train_encoder.py`, `src/23_submit_training.py`, `slurm/train_encoder.sh` | Shared encoder training and SLURM submission workflow. |
+| `src/24_evaluate_encoders.py` | Frozen DeBERTa and ModernBERT evaluation. |
+| `results/bert/run_*/config.json` | Pre-training settings/original Mercury dataset paths; only Run 02–06. |
+| `results/bert/run_*/training_history.csv` | Epoch train loss/LR/gradient norm, validation, training summary, restored-model evaluation. |
+| `results/bert/run_*/validation_metrics.json` | Best checkpoint path/F1, restored metrics, settings/versions. |
 
-## 3. SUM veri kaynağı, preprocessing ve leakage
+Separate sibling documentation repository `../dokumentation_01/` contains README.md, .gitignore, LICENSE, `term-paper/documentation.tex`, `title.tex`, `packages_and_configuration.tex`, `library.bib`, `documentation.pdf`. Evidence uses accessible TeX/Bib; PDF was not visually verified.
 
-Kaynak kimliği `lime-nlp/Synthetic_Unanswerable_Math`; kodda kullanılan URL `https://huggingface.co/datasets/lime-nlp/Synthetic_Unanswerable_Math/resolve/main/synthetic_unanswerable_math.parquet` (`src/03_prepare_sum.py::SOURCE_URL`). Kaynak 36.480 pair; alanlar `answerable_question`, `unanswerable_question`, `ground_truth`. `ground_truth` model girdisi değildir ve final CSV'de tutulmaz. Publisher'ın ayrı `test.parquet` dosyası inceleme scriptinde okunur, ancak deney split'i üretiminde kullanılmaz. README bu publisher test dosyasını 284 satırlık farklı setup olarak tarif eder; yerel kopyası yoktur, sayısı yeniden doğrulanmadı.
+## 3. SUM dataset
 
-`src/03_prepare_sum.py` algoritması:
+Dataset ID `lime-nlp/Synthetic_Unanswerable_Math`; `src/03_prepare_sum.py::SOURCE_URL` is `https://huggingface.co/datasets/lime-nlp/Synthetic_Unanswerable_Math/resolve/main/synthetic_unanswerable_math.parquet`. It contains 36,480 pairs with answerable_question, unanswerable_question, ground_truth. Mathematical answers are excluded from inputs and final CSV. Raw SUM is not stored locally; source revision/hash unpinned. Separate publisher test.parquet is inspected by script 01 but **excluded** from preparation; README calls it a distinct 284-row setup, not independently reloaded here.
 
-1. Generic `datasets.load_dataset("parquet", data_files={"train": SOURCE_URL}, split="train")`; 36.480 pair ve beklenen alanlar doğrulanır.
-2. `build_groups`: original row index `pair_id` olur. Aynı exact question text'ini paylaşan pair'ler union-find ile, transitif bağlantılar dahil birleştirilir. Her iki question alanı da bu indekse girer.
-3. `assign_groups`: `random.Random(42).shuffle`, sonra stable descending group-size sort; her group kalan pair açığı en yüksek split'e gider. Bu greedy heuristic group bütünlüğünü önceler; hedef sayılara ulaşmayı genel durumda garanti etmez.
-4. `expand`: split atandıktan sonra her pair iki örneğe açılır; cevaplanabilir metin `ANSWERABLE`, diğer metin `UNANSWERABLE`. Her split seed 42 ile shuffle edilir. Text normalization, trim, lowercase veya duplicate silme yapılmaz.
-5. `validate`: her pair için tam iki kayıt ve birer label, özgün text eşitliği, group bütünlüğü, tüm pair'lerin korunması, her split'te 50/50 sınıf dengesi, split'ler arası pair ve exact-text disjointness doğrulanır. Başarıdan sonra CSV yazılır. Script mevcut CSV'yi overwrite edebilir; deneyler başladıktan sonra gelişigüzel yeniden çalıştırılmamalıdır.
+`src/03_prepare_sum.py` loads only main Parquet via generic datasets.load_dataset, validates count/fields, and then:
 
-Mevcut CSV'lerde salt okunur sayımla doğrulanan durum:
+1. `build_groups`: original index becomes pair_id; union-find across both question fields joins all exact-text-linked pairs transitively.
+2. `assign_groups`: seed-42 shuffle, stable descending group-size sort, assign to largest remaining target deficit. Group integrity takes priority; this greedy heuristic cannot guarantee exact targets for arbitrary future source data.
+3. `expand`: only after splitting, two examples per pair (one per class), seed-42 shuffle per split. No trim/lowercase/normalization/deletion/deduplication.
+4. `validate`: original texts, complete source retention, two rows/one label each per pair, whole groups, balanced classes, disjoint pair/text sets. CSVs are written after checks, but existing CSVs can be overwritten. Do not regenerate fixed experiment files casually.
 
-| Yol | Pair | Örnek | ANSWERABLE | UNANSWERABLE | Unique exact text | Tekrarlanan distinct text | Conflicting distinct text |
+Columns: `pair_id,text,label`. Prior read-only full-CSV checks established:
+
+| Path | Pairs | Examples | ANSWERABLE | UNANSWERABLE | Unique texts | Repeated distinct texts | Conflicting distinct texts |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `data/processed/sum/train.csv` | 25.536 | 51.072 | 25.536 | 25.536 | 50.019 | 733 | 1 |
-| `data/processed/sum/validation.csv` | 5.472 | 10.944 | 5.472 | 5.472 | 10.943 | 1 | 1 |
-| `data/processed/sum/test.csv` | 5.472 | 10.944 | 5.472 | 5.472 | 10.944 | 0 | 0 |
+| `data/processed/sum/train.csv` | 25536 | 51072 | 25536 | 25536 | 50019 | 733 | 1 |
+| `data/processed/sum/validation.csv` | 5472 | 10944 | 5472 | 5472 | 10943 | 1 | 1 |
+| `data/processed/sum/test.csv` | 5472 | 10944 | 5472 | 5472 | 10944 | 0 | 0 |
 
-Her pair tam iki kayıttır; bütün split çiftlerinde pair ve exact-text overlap sıfırdır. Duplicate/conflicting text'in **split içinde kalması**, cross-split leakage bulunmasıyla aynı şey değildir. Mevcut conflicting label örnekleri korunmuştur. Near-duplicate, semantic/template overlap veya pretraining contamination bulunmadığı kanıtlanmış değildir. Kaynak Parquet revision/hash'i sabitlenmemiştir; yerel raw SUM dosyası yoktur. README eski ilk split denemesinde leakage bulunduğunu söyler; o eski split dosyaları ve sayısal leakage logları mevcut değildir.
+All 72,960 rows retained; every pair occurs twice; cross-split pair and exact-text overlaps are zero for every split pair. Within-split duplicates/conflicts remain. README describes initial split leakage, but original split files and old numerical leakage logs are unavailable. Exact-text isolation does not eliminate semantic/template/near-duplicate or pretraining contamination. No dedicated archived SUM–UMWP overlap check exists.
 
-## 4. UMWP veri kaynağı ve hazırlama
+Only train/validation may influence training, hyperparameters, early stopping, checkpoint selection and future runs. Never tune thresholds/prompts using SUM test or UMWP. Preserve fixed data across models. Notebook 01 has inspected SUM test examples/labels/lengths, so “test data was never inspected” is too strong. Whether sequence-length choice was influenced by test statistics is unknown.
 
-`data/raw/umwp/StandardDataset.jsonl` yerel benchmark kaynağıdır. Kaynak makale, komşu `../dokumentation_01/term-paper/library.bib::Sun2024` kaydında *Benchmarking Hallucination in Large Language Models Based on Unanswerable Math Word Problem*, LREC-COLING 2024 olarak geçer. Raw dosyanın hangi download URL/commit/revision ile edinildiği bu workspace'te kayıtlı değildir; tahmin edilmemelidir.
+## 4. UMWP dataset
 
-`src/08_prepare_umwp.py::main` UTF-8-sig JSONL okur; `id`, `question`, `answerable`, `category`, `source` ister; 5.200 satır, unique/non-null ID, string/nonempty text ve boolean label kontrol eder. Raw'da ayrıca `answer`, `relevant_ids` bulunur. `question`→`text`, `True`→`ANSWERABLE`, `False`→`UNANSWERABLE`; çıktı sırası `id,text,label,category,source`. Text, ID, category, source ve sıra değiştirilmez. `answer`/`relevant_ids` final CSV'ye veya modele girmez.
+Raw `data/raw/umwp/StandardDataset.jsonl`; processed `data/processed/umwp/test.csv`. Associated publication: Sun et al., *Benchmarking Hallucination in Large Language Models Based on Unanswerable Math Word Problem*, LREC-COLING 2024 (`../dokumentation_01/term-paper/library.bib::Sun2024`). Acquisition URL/revision/commit is unknown.
 
-`data/processed/umwp/test.csv`: 5.200 kayıt, 2.600/2.600 label dengesi, 5.190 unique text; 10 duplicate text grubu, bunlara ait 20 satır ve 5 conflicting label grubu. Hepsi tutulur; label düzeltme veya dedup yapılmaz. UMWP train/validation split'i yoktur ve oluşturulmamalıdır; tuning/early stopping/checkpoint selection için kullanılmaz (`src/08_prepare_umwp.py`, `notebooks/02_umwp_dataset_analysis.ipynb`, Dataset Preparation Decision).
+`src/08_prepare_umwp.py::main` reads UTF-8-sig JSONL; validates 5,200 rows, unique non-null IDs, nonempty string questions, boolean answerable. Raw columns: id/question/answer/answerable/category/relevant_ids/source. Output: `id,text,label,category,source`; question renamed unchanged, True→ANSWERABLE, False→UNANSWERABLE. Metadata/order preserved; answer/relevant_ids excluded. `question_statistics` checks duplicates/conflicts; `validate_text` checks integrity. No row removal, corrections, dedup or train/validation split.
 
-| Source metadata | Toplam | Her sınıfta |
+2,600 rows/class, 5,190 unique texts, 10 repeated distinct texts involving 20 rows, 5 conflicting-label groups. Official primary result stays all 5,200 rows; secondary sensitivity analysis must be separate.
+
+| Source | Total | Per class |
 | --- | ---: | ---: |
-| GSM8K | 3.400 | 1.700 |
-| SVAMP | 1.000 | 500 |
+| GSM8K | 3400 | 1700 |
+| SVAMP | 1000 | 500 |
 | MultiArith | 600 | 300 |
 | ASDiv | 200 | 100 |
 
-Category metadata: answerable 2.600 satırda null; unanswerable code 1:840, 2:1.263, 3:275, 4:103, 5:119. Processed CSV'de kodlar `1.0`…`5.0`, null boş alan olarak görünür. Sayısal kod→anlamsal category eşlemesi kod/notebook'ta tanımlı değildir; bilinmiyor. Taslak eksik/belirsiz bilgi, gerçekçi olmayan koşullar, referanssız nesne, eksik soru türlerini anar ama bunları kodlara eşlemez. Kaynak: `notebooks/02_umwp_dataset_analysis.ipynb`, category/source analysis hücreleri; mevcut CSV sayımları.
+Answerable category is null for all 2,600 rows. Unanswerable counts: code 1=840, 2=1263, 3=275, 4=103, 5=119. CSV codes are 1.0…5.0, null empty. Semantic code mapping is unknown; TeX mentions missing/ambiguous key information, unrealistic conditions, unreferenced objects and missing questions without mapping codes.
 
-Raw notebook çıktısında `answer` 2.598 kez null; iki unanswerable kayıtta non-null integer vardır; bütün answerable answer'ları list'tir. `relevant_ids` bütün answerable satırlarda null, bütün unanswerable satırlarda list'tir. Bunların modele verilmesi doğrudan label ipucu yaratabilir; mevcut pipeline yalnız `text` kullanır. SUM–UMWP cross-dataset exact/semantic overlap için kaydedilmiş bir kontrol bulunmadı; external değerlendirme ifadesi tek başına overlap yokluğunu kanıtlamaz.
+Notebook 02 records 2,598 null answers; two unanswerable answers are non-null integers; answerable answers are lists. relevant_ids is null for every answerable row, list for every unanswerable row. These label-revealing metadata patterns must not become inputs. Existing pipeline uses only text.
 
-## 5. Ortak BERT training pipeline
+## 5. Common training methodology
 
-Esas referans `src/05_train_bert_run02.py::main`, `load_split`, `compute_metrics`. Run 03/04/05/06 scriptleri aynı akışı kullanır; farkları run kimliği/output path, LR ve epoch budget'tır.
+Reference `src/05_train_bert_run02.py::load_split`, `compute_metrics`, `main`; BERT Run 03–06 differ by identity/paths, LR or budget.
 
-- `load_split` sadece `train` ve `validation` kabul eder. `pair_id,text,label` zorunlu; empty/missing değer, non-string text veya bilinmeyen label reddedilir. Model dataset'ine yalnız `text` ve numeric `labels` taşınır. `pair_id` ve matematik cevabı input değildir.
-- `WORLD_SIZE != 1` reddedilir; mevcut `CUDA_VISIBLE_DEVICES` korunur, yoksa `0` atanır; görünür GPU sayısı birden fazlaysa hata verir. Ordinary `python` beklenir, `torchrun` değil. CUDA yoksa CPU'ya izin verir; GPU zorunluluğu teknik olarak enforce edilmez.
-- `set_seed(42)` model yüklenmeden önce çağrılır. `BertTokenizerFast.from_pretrained("bert-base-uncased")`; tokenizer çağrısı `truncation=True,max_length=256`. `Dataset.from_pandas(...,preserve_index=False).map(...,batched=True,remove_columns=["text"],load_from_cache_file=False)`; dynamic padding `DataCollatorWithPadding` ile batch içinde yapılır.
-- `AutoModelForSequenceClassification.from_pretrained` aynı model kimliğinden `num_labels=2`, explicit `label2id/id2label` ile yükler. Classification task için fine-tuning uygulanır; encoder freeze eden kod yoktur.
-- `Trainer` ve `TrainingArguments`: train/eval per-device batch 32, gradient accumulation 1, `adamw_torch`, linear scheduler, weight decay 0.01, epoch evaluation/save/logging, `report_to="none"`, seed/data_seed 42.
-- Her epoch `ceil(51072/32)=1596` optimizer step. `planned_optimizer_steps=1596*max_epochs`; `warmup_steps=ceil(planned_steps*0.05)`. Dolayısıyla 5 epoch: 7.980 step/399 warmup; 7 epoch: 11.172 step/559 warmup. Max epoch değişince ilk epoch'lardaki LR schedule da değişir; uzun run kısa run'ın sonuna iki epoch eklemek değildir.
-- `load_best_model_at_end=True`, `metric_for_best_model="f1"`, `greater_is_better=True`, `save_total_limit=2`. `EarlyStoppingCallback` patience 2, threshold 0.0; validation binary F1 iyileşmeyen iki evaluation sonrası durabilir. Loss seçim kriteri değildir.
-- `compute_metrics`: logits argmax; Accuracy; positive label 1 için binary Precision/Recall/F1; `zero_division=0`. `best_model_metric="validation_f1"` açıklayıcı CONFIG kaydıdır; Trainer'ın kullandığı gerçek anahtar `f1`'dır.
-- `trainer.train()` sonrası `trainer.evaluate(validation_data)`, `trainer.save_model`, `tokenizer.save_pretrained`; history `trainer.state.log_history` üzerinden CSV'ye, best checkpoint ve environment bilgileri JSON'a yazılır. Run 02–06 ayrıca training öncesi `config.json` kaydeder. Training scriptlerinde mevcut output'u koruyan overwrite guard veya resume CLI'si yoktur; tekrar çalıştırma mevcut deneyi bozabilir.
+- load_split accepts only train/validation; requires pair_id/text/label; rejects empty/missing data, non-string text, unknown labels. Only text/numeric labels enter model datasets.
+- WORLD_SIZE must equal 1. `os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")` preserves an existing SLURM mask; more than one visible GPU is rejected. Ordinary python, not torchrun. CPU fallback remains possible.
+- set_seed(42) precedes model loading. BERT uses BertTokenizerFast from bert-base-uncased, truncation at 256. Dataset.from_pandas(preserve_index=False).map(batched=True,remove_columns=["text"],load_from_cache_file=False) tokenizes in memory; DataCollatorWithPadding dynamically pads.
+- AutoModelForSequenceClassification(num_labels=2, explicit label2id/id2label); full encoder/head fine-tuning, no freezing.
+- Train/eval batch 32, accumulation 1, effective one-GPU batch 32; adamw_torch, linear scheduler, decay .01, seed/data_seed 42, epoch evaluation/save/logging, report_to none.
+- Planned steps ceil(train_count/batch_size)*max_epochs; 1,596 steps/epoch. Warmup ceil(planned_steps*.05): 5 epochs→7,980/399 planned/warmup; 7→11,172/559. Budget changes also change the full LR schedule.
+- load_best_model_at_end=True; metric_for_best_model="f1"; greater_is_better=True; save_total_limit=2; early stopping patience 2/threshold 0. Binary UNANSWERABLE validation F1 selects checkpoints, not loss. CONFIG's descriptive validation_f1 differs from Trainer key f1.
+- compute_metrics: argmax; accuracy; binary precision/recall/F1 with average=binary, pos_label=1, zero_division=0.
+- After train, restore best, reevaluate validation, save weights and matching tokenizer, history CSV and validation JSON. Checkpoint F1 and restored evaluation remain separate. BERT Runs 02–06 and MathBERT write config before training. BERT Run 01 has only the configuration embedded in its validation report.
 
-**Reproducibility sınırları:** Bütün run raporlarında `torch=2.11.0+cu128`, `transformers=5.22.2`, `device=cuda:0` kayıtlıdır. Python/CUDA driver/GPU modeli, `datasets`/`numpy`/`pandas`/`scikit-learn`/`accelerate` sürümleri ve model/tokenizer commit hash'leri raporlarda yoktur. `requirements.txt` yalnız `torch,transformers,datasets,pandas,numpy,scikit-learn` içerir; version pin yoktur, scriptlerin belirttiği `accelerate` listede eksiktir. Notebook ortamı Python 3.13.7 olarak görünür; bu Mercury training Python sürümünü kanıtlamaz. Training'de explicit deterministic algorithms veya precision (`fp16`/`bf16`) ayarı yoktur; library default'larını sabit deney ayarı gibi varsaymamak gerekir. Evaluation scripti daha güçlü determinism ayarları kullanır.
+BERT scripts lack overwrite guards/resume CLI. Run 01 uses models/bert/best_model, models/bert/checkpoints, results/bert, although archived compact results are results/bert/run_01/. Relocation history is unknown; unchanged script does not write to that archive directory.
 
-## 6. Altı BERT deneyi ve kayıtların yorumlanması
+BERT reports record torch **2.11.0+cu128**, transformers **5.22.2**, cuda:0. Training Python, GPU model, driver, other library versions, model/tokenizer hashes and raw SUM revision are unknown. Notebook Python 3.13.7 does not establish Mercury training Python. No explicit training deterministic-algorithms/fp16/bf16 settings; do not invent defaults. Evaluation is more deterministic. Single-seed results establish neither significance nor robustness. MathBERT configs record broader runtime metadata. The [DeBERTa and ModernBERT training comparison](results/encoder_training_comparison.md) documents their recorded FP32 settings, dataset hash coverage and follow-up schedules.
 
-Sonraki tablolardaki sayılar doğrudan `results/bert/run_XX/validation_metrics.json`, `config.json` (varsa) ve `training_history.csv` kaynaklıdır; türetilen best epoch history'nin maksimum F1 satırından alınmıştır. Decimal noktası teknik formatı korur. Ayrıntılı epoch metrikleri ekte yer alır.
+## 6. Completed BERT experiments and chronology
 
-Run 01 özel durumu: `src/04_train_bert_run01.py::MODEL_DIR` → `models/bert/best_model`, `CHECKPOINT_DIR` → `models/bert/checkpoints`, `RESULTS_DIR` → `results/bert`. Mevcut compact sonuçlar ise `results/bert/run_01/` altındadır. Sonuçların ne zaman/nasıl bu alt dizine taşındığı bilinmiyor. Bu script değiştirilmeden tekrar çalıştırılırsa `run_01/` altına yazmaz; ayrı `config.json` üretmez. Rapor configuration'ı mevcuttur.
+Sources: results/bert/run_01 through run_06 history CSV/validation JSON and available config. Exact metrics, epochs, checkpoint paths and runtimes remain in section 12.
 
-Run 02 validation F1 açısından altı run'ın en iyisidir. Run 04 Accuracy'si daha yüksek olsa da seçim kriteri F1'dır. Run 03, Run 02'ye göre yalnız LR 2e-5; Run 04 LR 4e-5; Run 05 5e-5 ve 5 epoch; Run 06 5e-5 ve 7 epoch. Run 01→03 ve Run 05→06 karşılaştırmalarında epoch budget ile birlikte warmup ve decay schedule da değişir. `notebooks/03_bert_training_analysis.ipynb` Run 05/06'yı daha yüksek LR için exploratory ek deneyler olarak niteler. Git history'de Run 02 test sonuçlarının commit'i `89c9fde`, Run 05/06 kodu `bf04ddb`, sonuçları `f8d5e2d` sırasındadır. Bu commit sırası gerçek training zamanlarını tek başına kanıtlamaz; ancak ek deneylerin test sonuçları repository'ye girdikten sonra eklendiği açıktır. “Bütün altı run test görülmeden planlandı” iddiası desteklenmez.
+| Run | Script | LR | Max epochs | Best epoch | Best-checkpoint F1 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 01 | `src/04_train_bert_run01.py` | 2e-5 | 5 | 5 | 0.8431372549019608 |
+| 02 | `src/05_train_bert_run02.py` | 3e-5 | 7 | 7 | 0.8517332845513583 |
+| 03 | `src/06_train_bert_run03.py` | 2e-5 | 7 | 7 | 0.8497940503432494 |
+| 04 | `src/07_train_bert_run04.py` | 4e-5 | 7 | 7 | 0.8513302034428795 |
+| 05 | `src/10_train_bert_run05.py` | 5e-5 | 5 | 5 | 0.8458781362007168 |
+| 06 | `src/11_train_bert_run06.py` | 5e-5 | 7 | 5 | 0.8509703405346027 |
 
-### Run 06 tutarsızlığı
+All bert-base-uncased. **Run 02 selected by validation F1**; Run 04 accuracy is higher but is not the selection criterion. F1 lead is ~0.0403 percentage points, no significance established. Run 03/04 change LR versus Run 02; Run 05 changes LR/budget; Run 06 LR. Five/seven-epoch comparisons also change warmup/decay.
 
-`results/bert/run_06/training_history.csv`: epoch 5 F1 **0.8509703405346027**, loss 0.4683046042919159; best checkpoint `checkpoint-7980`. Epoch 6 ve 7 F1 daha düşük; iki iyileşmeme patience koşulu max epoch sınırıyla aynı noktaya denk gelir. Dolayısıyla yalnız logdan hangisinin bitişi tetiklediği kesin ayrıştırılamaz.
+Runs 05/06 were exploratory additions, not predeclared with all six. Verified commit order: 89c9fde (Run 02 final evaluation), bf04ddb (Run 05/06 code), f8d5e2d (their results), 235b47a (MathBERT code/original context). Commit order is not exact training chronology. Earlier notebook states Run 02 selected before test, consistent with frozen evaluator, but independent timestamped selection evidence is limited. Do not imply all six preceded first test evaluation; later decisions must not exploit known test outcomes.
 
-`results/bert/run_06/validation_metrics.json::best_checkpoint_validation_f1` aynı 0.8509703405346027 değeridir; fakat `best_validation_metrics` yeniden evaluation sonucu F1 **0.8506903172716467**, Accuracy 0.8507858187134503, Precision 0.851235132662397, Recall 0.8501461988304093 ve loss 0.4714003801345825 verir. Bu son evaluation'ın `epoch=7` metadata'sı checkpoint'in epoch 7 olduğunu göstermez; training state'in son epoch'udur. Gerçek best epoch checkpoint step / 1596 = 5'tir. Sebep bilinmiyor; best model yükleme, numerical determinism ve serialization/restore gelecekte incelenmelidir. Değerlerden biri sessizce diğerinin yerine konmamalıdır.
+**Run 06 discrepancy:** results/bert/run_06/validation_metrics.json records checkpoint-7980/F1 **0.8509703405346027**, matching original epoch 5 (loss .4683046042919159, accuracy .8512426900584795, precision .8525311812179017, recall .8494152046783626). Epochs 6/7 do not improve. Patience and max-budget boundaries coincide; exact stopping trigger cannot be distinguished.
 
-Run 02'de training loss epoch 1→7 0.523006→0.103833 düşerken validation loss epoch 3'te 0.374826'dan epoch 7'de 0.629921'e çıkar; F1 aynı aralıkta iyileşir (`results/bert/run_02/training_history.csv`). Bu overfitting veya confidence/calibration sorunu için bir belirtidir; F1 seçim kuralının hatalı olduğunu veya belirli bir sebebi tek başına kanıtlamaz. Tek seed kullanıldığı için küçük run farklarının istatistiksel anlamlılığı bilinmiyor.
+Post-training restored evaluation F1 is **0.8506903172716467**, accuracy .8507858187134503, precision .851235132662397, recall .8501461988304093, loss .4714003801345825. Its epoch=7 is final Trainer state, not checkpoint epoch. Cause unknown; retain both. Later authorized investigation should inspect checkpoint restoration, serialization and numerical determinism on validation, not change results or rerun training first.
 
-## 7. SUM test ve UMWP evaluation
+Run 02 train loss decreases .523006→.103833, validation loss minimum .374826 at epoch 3 rises to .629921 at epoch 7 while F1 improves (history CSV). Report this divergence; it does not prove a causal overfitting/calibration mechanism.
 
-`src/09_evaluate_bert.py` frozen Run 02'ye hardcoded'dur: `MODEL_PATH=models/bert/run_02/best_model`, `CONFIG_PATH=results/bert/run_02/config.json`. Dataset CLI zorunludur. `load_dataset` yalnız seçilen `data/processed/{sum|umwp}/test.csv` dosyasını okur; `keep_default_na=False` literal text/metadata korur; boyut, label ve text kontrolü; UMWP için unique ID ve sınıf dengesi kontrolü yapar.
+## 7. Frozen encoder evaluation
 
-`main` config'te Run 02 ve label mapping doğrular; max_length ve batch'i kayıtlı config'ten alır (256,32). Model/tokenizer sadece yerel best_model içinden `local_files_only=True` ile yüklenir. Seed 42; cuDNN benchmark kapalı, deterministic açık, `torch.use_deterministic_algorithms(True)`; entry point'te torch importundan önce `CUBLAS_WORKSPACE_CONFIG=:4096:8`. CUDA varsa GPU, yoksa CPU seçer. `model.eval()` ve `torch.no_grad()` altında yalnız `text` tokenize edilir; batch padding, truncation 256; predictions logits argmax, probabilities softmax. Threshold tuning/retraining yoktur.
+src/09_evaluate_bert.py hardcodes models/bert/run_02/best_model and results/bert/run_02/config.json. load_dataset reads only the requested processed test CSV, keep_default_na=False, validating schema/text/labels/size and UMWP balance/IDs. main checks run/mapping; local_files_only model/tokenizer; saved length 256/batch 32; seed 42, cuDNN benchmark off/determinism on, deterministic algorithms and CUBLAS_WORKSPACE_CONFIG=:4096:8 before torch. CUDA if available else CPU.
 
-`calculate_metrics` Accuracy, positive-class Precision/Recall/F1, iki label üzerinden macro-F1, correct/incorrect counts hesaplar. Confusion matrix sıra `[ANSWERABLE, UNANSWERABLE]`, rows=true/columns=predicted; `[[TN,FP],[FN,TP]]`.
+Inference uses eval/no_grad, original order, text only, padding/truncation, argmax and softmax. calculate_metrics defines accuracy, UNANSWERABLE binary precision/recall/F1, two-label macro-F1, correct/incorrect. No adaptation/training/threshold tuning.
 
-| Dataset | N | Accuracy | Precision (U) | Recall (U) | F1 (U) | Macro-F1 | Correct / Incorrect |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| SUM test | 10944 | 0.847953216374269 | 0.8545623836126629 | 0.8386330409356725 | 0.8465227817745803 | 0.847940007581116 | 9280 / 1664 |
-| UMWP | 5200 | 0.6761538461538461 | 0.7301507537688442 | 0.5588461538461539 | 0.6331154684095861 | 0.6716351868726071 | 3516 / 1684 |
+All four selected checkpoints have saved evaluations on the fixed SUM Test (10,944 examples) and full UMWP (5,200 examples). The saved runs use maximum length 256, evaluation batch size 32 and argmax. BERT and MathBERT loaded `best_model/` exports. DeBERTa and ModernBERT loaded their recorded `checkpoint-11172/` directories.
 
-Kaynaklar: `results/bert/run_02/sum_test/metrics.json`, `results/bert/run_02/umwp/metrics.json`. Predictions dosyaları salt okunur sayıldığında satır ve correct sayıları bu raporlarla uyuşur.
+ModernBERT leads SUM Test by UNANSWERABLE F1 (87.18%), and DeBERTa leads UMWP (68.78%). Every encoder scores lower on UMWP. The official UMWP results retain all 10 repeated texts, including five groups with conflicting labels. See the [final test comparison](results/final_test_comparison.md) for all scores, confusion matrices, transfer gaps and source links.
 
-| Dataset | TN | FP: A→U | FN: U→A | TP |
-| --- | ---: | ---: | ---: | ---: |
-| SUM test | 4691 | 781 | 883 | 4589 |
-| UMWP | 2063 | 537 | 1147 | 1453 |
+Prediction CSVs retain the original text and labels, predicted label, probabilities and correctness, along with SUM pair IDs or UMWP IDs and category/source metadata. UMWP duplicate analyses are saved with the evaluations. Category/source and qualitative error analysis remain open.
 
-UMWP'deki 1.147 FN, eksik bilgiyi fark edememe yönündeki temel araştırma hatasıdır. SUM→UMWP F1 düşüşü yaklaşık 21.34 yüzde puan; recall düşüşü yaklaşık 27.98 yüzde puandır. Bu veriler distribution değişiminde zayıflamayı gösterir; sebebini izole etmez.
+## 8. MathBERT and later encoder experiments
 
-Output'lar `results/bert/run_02/sum_test/` ve `results/bert/run_02/umwp/`: `metrics.json`, `confusion_matrix.csv`, `predictions.csv`; yalnız UMWP'de ayrıca `duplicate_analysis.csv`. Predictions ortak kolonları `text,true_label,predicted_label,correct,probability_answerable,probability_unanswerable`; SUM'da `pair_id`; UMWP'de `id,category,source` bulunur. Bunlar metadata'dır, model girdisi değildir. UMWP duplicate raporu: 10 repeated text, 5 conflicting ground-truth text, inconsistent prediction group 0. Aynı text aynı prediction almıştır; conflicting label çiftlerinde en az bir kaçınılmaz hata vardır. Official ana sonuçlar dedup edilmemiş 5.200 kayıt üzerinden kalmalıdır.
+User-selected **tbs17/MathBERT-custom**, with mathematical vocabulary and its own tokenizer instead of original-vocabulary MathBERT. Domain-specific tokenization is the design rationale, not evidence of superiority to tbs17/MathBERT. No controlled variant comparison/stronger selection rationale is archived. Pretraining and tokenizer change together; vocabulary effects are not isolated.
 
-Script output dizini zaten varsa `FileExistsError` ile overwrite'ı reddeder. İki output dizini de mevcut; mevcut komutlar yeniden çalıştırılırsa (model bulunsa bile) overwrite guard'a takılır. Yerelde `models/` olmadığı için önce missing-model hatası beklenir. Diğer BERT run'larının SUM test/UMWP sonuçları bulunmuyor. Category/source bazlı evaluation sonuçları ayrı artifact olarak henüz yoktur; mevcut predictions metadata'sı buna olanak sağlar.
+`src/12_train_mathbert_run01.py` exists in local commit **235b47a**. Push and Mercury pull are user-reported, not live-verified here. Previously inspected public metadata indicated bert/BertForMaskedLM, 512 positions, hidden size 768, 12 layers/heads, vocab 30,522, uncased mathematical WordPiece and tokenizer.json. References for later checking: https://huggingface.co/tbs17/MathBERT-custom and its /blob/main/config.json and /tree/main pages. That was metadata-only inspection during implementation; tokenizer_config content was unavailable then. No assistant weight loading or fresh network verification occurred now. The user reports successful Mercury model/tokenizer loading; job logs are outside the local checkout.
 
-## 8. Mercury HPC ve Git iş akışı
+main loads AutoConfig, AutoTokenizer(use_fast=True) from exact ID, AutoModelForSequenceClassification(num_labels=2) with the same resolved revision. Runtime checks: BERT type, position limit, all parameters trainable, matching tokenizer/embedding size, padding ID and in-range special IDs. MLM weights require new classification head and any absent pooler initialization. Full fine-tuning remains; no extra dependency or remote-code requirement introduced.
 
-**README'de belgelenmiş, bu oturumda uzaktan doğrulanmamış:** Mercury repository `~/projects/CDS1092_NLP_Project`, Conda environment `cds1092`; GitHub SSH ayarı `git@github.com:Janissary09/CDS1092_NLP_Project.git`. Sonuç JSON'larında absolute kök `/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project` olarak kayıtlıdır. README A100 erişimi ve CUDA doğrulamasının yapıldığını söyler; run JSON'ları yalnız `cuda:0` kanıtlar, GPU modelini kaydetmez.
+Configuration matches BERT Run 02: **3e-5, max 7 epochs, train/eval batch 32, accumulation 1, length 256, seed/data_seed 42, adamw_torch, linear, decay .01, warmup .05 (11,172/559 steps), epoch eval/save/log, positive F1 selection, restore best, patience 2/threshold 0, save limit 2**. Only fixed SUM train/validation.
 
-README'deki interactive allocation ve environment komutları (burada çalıştırılmadı):
+Revision requested main; AutoConfig._commit_hash, when available, pins subsequent tokenizer/weights and is recorded. Otherwise null/unavailable and main fallback. Provenance: ID, requested/resolved revision/source, model/tokenizer classes, vocab size, Python and available torch/transformers/datasets/numpy/pandas/scikit-learn/accelerate/tokenizers/huggingface-hub versions (missing metadata null). The [Run 01 config](results/mathbert/run_01/config.json) records Python 3.11.18 and a requested revision of `main`, with no resolved commit hash.
 
-```bash
-git pull
-srun --partition=students --gres=gpu:a100:1 --time=02:00:00 --pty bash
-conda activate cds1092
-cd ~/projects/CDS1092_NLP_Project
-python -c "import torch; print(torch.cuda.get_device_name(0)); print('CUDA:', torch.cuda.is_available())"
-```
+Outputs models/mathbert/run_01/checkpoints/, models/mathbert/run_01/best_model/ (weights **and tokenizer**), results/mathbert/run_01/{config.json,training_history.csv,validation_metrics.json}. Before loading, either existing run directory (including partial/empty) causes failure; directories and JSON use exclusive creation. An early failure leaves directories blocking retry. No automatic resume/cleanup; obtain a decision rather than deleting/restarting.
 
-Mevcut scriptlerin doğrudan çalıştırma komutları:
+The initial A100/CUDA launch and first-epoch F1 of approximately 0.67 were reported on 2026-11-17. Saved artifacts now establish completion of MathBERT Runs 01–05. Run 04 was selected at epoch 5 (`checkpoint-7980`, validation F1 78.16%) and evaluated by `src/17_evaluate_mathbert.py` on both test datasets. The [MathBERT notebook](notebooks/04_mathbert_training_analysis.ipynb) documents the full run history.
 
-```bash
-python src/04_train_bert_run01.py
-python src/05_train_bert_run02.py
-python src/06_train_bert_run03.py
-python src/07_train_bert_run04.py
-python src/10_train_bert_run05.py
-python src/11_train_bert_run06.py
-python src/09_evaluate_bert.py --dataset sum
-python src/09_evaluate_bert.py --dataset umwp
-```
+DeBERTa-v3-base completed Runs 02–08. Run 01 is a failed attempt with non-finite loss and zero validation F1. ModernBERT-base completed Runs 01–08. Their selected runs were DeBERTa Run 05 and ModernBERT Run 06, both at epoch 7 (`checkpoint-11172`). For both models, Run 07 tested a higher learning rate and Run 08 a longer planned schedule. Both Run 08 experiments stopped at epoch 7. Neither follow-up displaced the selected checkpoints. See the [training comparison](results/encoder_training_comparison.md) for configurations, trajectories and validation metrics.
 
-Bunlar mevcut kodun kullanımını kaydeder; tamamlanmış run'ları tekrar çalıştırma talimatı değildir. Run-specific yeni yollar belirlenmeden training tekrar edilmemelidir. GPU allocation içinden tek GPU ile ordinary `python` kullanılmalıdır (`src/*train_bert*.py::main`). Login node üzerinde GPU işi çalıştırmama kuralı README'de Slurm zorunluluğu olarak belirtilir.
+## 9. Environment and execution
 
-**Bilinmeyenler:** Gerçekte kullanılan `sbatch` dosyaları, job ID, stdout/stderr, CPU/RAM isteği, CUDA module setup, hostname/login komutu, Conda oluşturma komutu ve tam environment export mevcut değildir. Bu yüzden var olmayan bir SLURM scripti mevcutmuş gibi gösterilmez. A100 memory türü ve queue'nun güncel kullanılabilirliği bilinmiyor.
+README: Mercury root ~/projects/CDS1092_NLP_Project, Conda cds1092, SSH git@github.com:Janissary09/CDS1092_NLP_Project.git. BERT absolute root /home/arikanmurat@edu.local/projects/CDS1092_NLP_Project. A100/CUDA use is documented/user-reported; BERT reports alone prove cuda:0. Job IDs, current queue, GPU memory type, login hostname, CPU/RAM requests, modules, Conda creation/full export unknown.
 
-**Öneri — gelecekte oluşturulabilecek batch şablonu:** Aşağıdaki içerik mevcut artifact değildir; partition/GPU/time README örneğinden türetilmiştir. Yeni MathBERT scripti hazırlanmadan kullanılamaz; CPU/RAM değerleri cluster politikası ve ölçümle ayrıca belirlenmelidir.
+The original BERT and MathBERT training scripts document the interactive Mercury workflow. The current shared batch workflow is documented in [slurm/README_training.md](slurm/README_training.md) and uses `slurm/train_encoder.sh`, `src/23_submit_training.py` and the experiment manifests in `configs/`. GPU work runs through SLURM with its assigned CUDA mask.
 
-```bash
-#!/bin/bash
-#SBATCH --job-name=mathbert01
-#SBATCH --partition=students
-#SBATCH --gres=gpu:a100:1
-#SBATCH --time=02:00:00
-#SBATCH --output=logs/%x-%j.out
-#SBATCH --error=logs/%x-%j.err
-set -euo pipefail
-# Conda shell initialization: Mercury kurulumuna göre doğrulanmalı.
-conda activate cds1092
-cd ~/projects/CDS1092_NLP_Project
-python -u src/12_train_mathbert_run01.py  # Önerilen dosya; henüz yok.
-```
+requirements.txt lists unpinned torch/transformers/datasets/pandas/numpy/scikit-learn. accelerate is required but omitted. Analysis needs matplotlib, Jupyter/IPython; prior verification used existing local fhgr with nbformat/nbclient/ipykernel, no installs. MathBERT adds standard-library platform/importlib.metadata only. Preserve working CUDA torch; document version or precision/batch changes.
 
-Önerilen kullanım: submit öncesi `mkdir -p logs`, ardından hazırlanmış script için `sbatch <job-script.sh>`; takip `squeue -u "$USER"`, çıktı `tail -f logs/<job-output>`; bunlar cluster üzerinde doğrulanmış geçmiş komutlar değildir. Slurm GPU mask'ini script korur; allocation mask'ini gelişigüzel overwrite etmemek gerekir.
+README compact-result flow: Mercury git status, explicit reviewed git add paths, commit/push, local pull. **No commit/push authorized now.** .gitignore excludes /models/, checkpoints/weights, HF caches, environments/temp files, while allowing fixed SUM/raw+processed UMWP. Git is not weight storage. Backup retention/location and real transfer history unknown. A future approved transfer may use scp -r <user@host>:<remote-project>/models/<model>/<run>/best_model <local-destination> or institutional tools with confirmed details. Compact results do not prove model availability; verify retention for all four selected models if reruns or backup transfers are needed.
 
-**Sonuçları geri alma:** README'nin var olan modeli compact sonuçları GitHub'a commit/push etmek, yerelde pull etmektir. Mercury'de önce `git status`, sonra yalnız yeni run'ın source/config/history/metrics/notebook dosyalarını açık yollarla `git add`, `git commit`, `git push`; diğer makinede `git pull`. Model weights bu yolla taşınmaz. `.gitignore` `/models/`, checkpoints, ağırlık uzantıları, HF cache ve environment'ları dışlar; SUM fixed CSV ve raw/processed UMWP için açık istisnalar vardır. Büyük weights için Mercury'de backup konumu/retention ve gerçekleşmiş transfer komutları bilinmiyor. Öneri: gerçek SSH hedefi öğrenildiğinde `scp -r <user@host>:<remote-project>/models/<model>/<run>/best_model <local-destination>` veya kurumun onaylı transfer yöntemi; placeholder'lar gerçek bağlantı bilgisi değildir. Compact sonuçların Git'te bulunması modelin halen Mercury'de korunduğunu kanıtlamaz.
+## 10. Notebooks and verification history
 
-## 9. Notebook'lar ve dokümantasyon sorunları
+Follow NOTEBOOK_GUIDELINES.md. This update read notebook JSON/outputs, without rerunning or loading tokenizers.
 
-### `notebooks/01_sum_dataset_analysis.ipynb`
+- notebooks/01_sum_dataset_analysis.ipynb: CSV/schema/label checks, whitespace words (length_statistics), full BERT tokens, 128/256/512 truncation, shortest/longest examples/histograms. Eight executed cells; fhgr/Python 3.13.7 metadata. No training/data writes; tokenizer may download. Saved train/validation/test token mean 69.43/70.61/70.95, max 2186/1029/1047; above 256: 582/138/119 (1.14%/1.26%/1.09%). HF unauthenticated/symlink/>512 warnings are recorded; untruncated measurement without inference is intentional. Test inspection qualifies unseen-test claims.
+- notebooks/02_umwp_dataset_analysis.ipynb: raw fields/nulls/labels/categories/sources, duplicates/conflicts, answer/relevant_ids types, check PASS/WARNING, official-preservation decision. Twelve executed cells without errors. Future-tense proposed-schema text is historical; CSV now exists.
+- notebooks/03_bert_training_analysis.ipynb: revised English seven-section analysis; programmatic six-run loading/shared tables, three loss/F1 plots, validation ranking, Run 06 discrepancy, saved JSON/CSV test metrics and actual/predicted confusion matrices. read_json/load_run helpers; ancestor root detection; explicit Run 01 fallback. load_run uses single train_runtime summary boundary, matches checkpoint step to original epoch, checks artifact consistency.
 
-Final CSV boyut/label/missing checks, word count (`length_statistics`), truncation olmadan BERT token count, 128/256/512 truncation oranları, kısa/uzun örnekler ve histogramlar. Kaydedilmiş kernel `fhgr (3.13.7)`. Dataset yazmaz/training yapmaz; ilk tokenizer yüklemesi network/cache kullanabilir. Kayıtlı çıktıda train token mean 69.43, validation 70.61, test 70.95; max 2186/1029/1047. 256 sınırını aşan örnekler train 582 (%1.14), validation 138 (%1.26), test 119 (%1.09). Bunlar notebook'un kayıtlı çıktısıdır; tokenizer yeniden çalıştırılmadı.
+- [04_mathbert_training_analysis.ipynb](notebooks/04_mathbert_training_analysis.ipynb) covers Runs 01–05, Run 04 selection and saved tests.
+- [05_deberta_training_analysis.ipynb](notebooks/05_deberta_training_analysis.ipynb) covers the failed Run 01, completed Runs 02–08, Run 05 selection and saved tests.
+- [06_modernbert_training_analysis.ipynb](notebooks/06_modernbert_training_analysis.ipynb) covers Runs 01–08, Run 06 selection and saved tests.
 
-Notebook test text'lerini, label'larını, örneklerini ve uzunluk dağılımını inceler. Dolayısıyla “test'e hiç bakılmadı” demek doğru değildir; training scriptlerinin test kullanmaması ve test metriklerinin seçimde kullanılmaması daha dar iddialardır. Token limitinin test istatistiklerine dayanarak seçilip seçilmediği bilinmiyor. HF unauthenticated/symlink uyarıları ve full sequence >512 uyarısı kayıtlıdır; uzunluk ölçümü model inference olmadığı için bu tek başına hata değildir. Matplotlib/Jupyter/IPython dependencies `requirements.txt` içinde yoktur.
+The BERT revision fixed hidden state (undefined pd/runs/RUN_NAMES), hardcoded test metrics and groupby(epoch).last() replacing Run 06's original final epoch. These are **resolved historical defects**. Saved eight code cells have counts 1–8/no errors. In the previous notebook task fresh-kernel Run All passed from root and notebooks/ and figures were inspected. Initial sandbox launch hit Windows kernel connection-file ACL restrictions; approved outside-sandbox execution succeeded with a nonfatal event-loop warning. No model operation. Revised notebook remains locally modified, pending user review/commit.
 
-### `notebooks/02_umwp_dataset_analysis.ipynb`
+## 11. Limitations, contradictions and pending evidence
 
-Raw structure, null fields, bool labels, category/source dağılımları, text quality, duplicate/conflict, answer/relevant_ids tipleri ve final validation; `check` fonksiyonu PASS/WARNING basar. Başlangıç hücreleri import ve root discovery içerir; kayıtlı execution 1–12. İşlem read-only'dir; önerilen processed schema ve official benchmark'ı değiştirmeme kararı vardır. Processed dosya artık bulunduğundan “will contain” türü gelecek zaman ifadeleri tarihsel kalmıştır. Mevcut çıktılarda Python error output'u bulunmadı.
+- TeX says official SUM test preserved; actual preparation builds 70/15/15 from main Parquet, excluding publisher test. Align report later. Provisional LLM names are not final IDs.
+- Run 06 restore difference, one seed, unequal search budgets, missing immutable BERT/data revisions and joint tokenizer/domain changes limit claims. Exact grouping cannot prove semantic/pretraining isolation; UMWP conflicts/unknown categories require caution.
+- Remote retention of the selected checkpoints and tokenizers has not been verified.
 
-### `notebooks/03_bert_training_analysis.ipynb`
+- Comparative and qualitative analysis remains open. Keep frozen-prompt results and Phi-4 sensitivity conditions distinct in the final report.
 
-Altı run setup/validation, Run 02 seçimi, SUM/UMWP metrikleri ve yorumlar. **Temiz kernel'de self-contained değildir:** ilk code cell doğrudan `pd.DataFrame`, `runs`, `RUN_NAMES` kullanır; bunları import/initialize eden hücreler mevcut notebook'ta yoktur. Kayıtlı execution 7/8/9 ve çıktıların varlığı dış/kernel state'e bağlı geçmiş çalışmayı gösterir; temiz çalıştırılabilirliği kanıtlamaz. Kaydedilmiş hata output'u yoktur, fakat static code bu bağımlılığı açıkça gösterir.
+## 12. Preserved numerical evidence
 
-`epoch_metrics(history)` `groupby("epoch").last()` kullanır. Son best-model re-evaluation son training epoch'una yazıldığı için özellikle Run 06'nın gerçek epoch 7 metriklerinin yerine restored checkpoint metriklerini koyar. En yüksek F1 epoch 5 olarak yine bulunur; epoch 7 trajectory'si bu işlemle çarpıtılır. Öneri: epoch evaluation ile post-training restored-model evaluation event'lerini ayırmak. Test metrikleri ve confusion matrix code cell'de hardcoded; JSON'lardan otomatik okunmuyor, ileride drift riski var. Notebook çalışma ağacında zaten modified idi; bilgi devri sırasında düzeltilmedi.
+Original BERT JSON/CSV values follow. Best epoch events (12.2) and restored-model evaluations (12.3) remain separate. Every epoch table names its source; no evaluation was rerun.
 
-### Güncelliğini yitirmiş beyanlar
+### 12.1 Run configurations and best epochs
 
-`README.md` yalnız Run 01/02 completed gösterir, Run 03 için “not yet trained” der; gerçekte Run 03–06 sonuçları mevcut. SUM test/UMWP değerlendirmesi future work gösterilse de Run 02 sonuçları vardır. Repository tree eksiktir; `accelerate` açıklamada bulunurken requirements listesinde yoktur. Ayrıca `../dokumentation_01/term-paper/documentation.tex` official SUM test split'in aynen kullanılacağını söyler; uygulanmış `src/03_prepare_sum.py` publisher'ın training Parquet'inden yeni 70/15/15 split üretir. Rapor yazılırken uygulanan deney düzeni esas alınmalı, taslak bu konuda gelecekte düzeltilmelidir.
-
-## 10. Tamamlanan işler, açık işler ve önerilen sıra
-
-**Artifact ile doğrulanmış tamamlananlar:** SUM inspection/duplicate analizi ve final grouped split kodu; sabit SUM CSV'leri; raw ve processed UMWP; üç analiz notebook'u (üçüncünün clean-kernel sorunu saklı kalmak üzere); altı BERT run configuration/history/validation raporu; Run 02 SUM ve UMWP predictions/metrics/confusion; duplicate consistency analizi. Mercury environment ve SSH kurulumunun tamamlandığı README beyanıdır, uzaktan yeniden doğrulanmadı.
-
-**Henüz artifact bulunmayan işler:** MathBERT, DeBERTa-v3, ModernBERT training/evaluation; zero-shot LLM ortak prompt/API runner ve sonuçları; private test; category/source bazlı detaylı error analysis; multi-seed belirsizlik analizi; version lock ve model/data revision manifest; gerçek SLURM script/log arşivi; final araştırma sonuç raporu.
-
-**Önerilen öncelik sırası:**
-
-1. Mercury'de Run 02 best_model ve diğer checkpoint'lerin varlığını, backup/retention durumunu kontrol et; immutable model hash/environment manifest oluştur. Yerelde model olmadan frozen sonuç yeniden üretilemez.
-2. Run 06 restore/evaluation farkını aynı checkpoint ve aynı validation verisiyle daha sonra incele; training'i tekrar etmek ilk adım değildir. İnceleme sonucu gelmeden mevcut kayıtları “düzeltme”.
-3. Notebook 03 import/load hücrelerini ve event ayrımını ayrı bir değişiklikte düzelt; README/araştırma taslağını actual split ve completed deneylerle uyumlu hale getir.
-4. MathBERT'i aşağıdaki önceden belirlenmiş comparable koşullarla başlat; BERT sonuçlarını yeniden overwrite etme. Test sonuçları zaten bilindiği için sonraki model protokolünü önceden yazılı dondur.
-5. Aynı frozen test/UMWP örnekleri için diğer encoder ve LLM pipeline'larını tamamla. UMWP'yi tuning set'e dönüştürme. Yeni prompt/threshold tasarımını test outcome'a göre optimize etme.
-6. Mevcut predictions üzerinden category/source ve FN/FP analizi, qualitative örnekler, truncation ile hata ilişkisi ve benchmark conflicts etkisini raporla. Secondary dedup/conflict-sensitive analiz varsa official primary sonucu ayrı tut. Multi-seed/paired uncertainty analizini kaynak bütçesi ve araştırma protokolüne göre planla.
-
-## 11. MathBERT'e başlamak için uygulama planı
-
-Bu bölüm **öneridir**; MathBERT scripti/model kimliği/tokenizer seçimi henüz mevcut projede belirlenmemiştir. “MathBERT” adı tek başına tam Hugging Face repository/revision veya vocab variant'ını belirlemez. Belirli bir model ID'si uydurulmamalıdır. Deneye başlamadan model card, license, pretrained checkpoint, tokenizer/vocab, casing ve sequence length uyumu resmi kaynaktan doğrulanmalı; exact repository ID/revision rapora kaydedilmelidir. Bu inceleme sırasında model indirilmedi.
-
-### Karşılaştırılabilir ana deney
-
-Başlangıç scripti olarak `src/05_train_bert_run02.py` akışını **yeni bir dosyaya** uyarlamak uygun olur: önerilen ad `src/12_train_mathbert_run01.py`, yeni `models/mathbert/run_01/{best_model,checkpoints}` ve `results/mathbert/run_01/`. Bu yollar henüz yoktur. BERT dosyalarını değiştirme; `load_split`, positive label, `compute_metrics`, best-F1 selection, dynamic padding ve artifact şemasını koru.
-
-| Ayar | Önerilen comparable değer |
-| --- | --- |
-| Data | Aynı `data/processed/sum/train.csv` ve `validation.csv`; split yeniden üretme |
-| Model/tokenizer | Doğrulanmış MathBERT checkpoint ve **ona ait** tokenizer/revision |
-| Labels | ANSWERABLE=0, UNANSWERABLE=1; binary UNANSWERABLE F1 |
-| Max length | 256; model limit uyumu doğrulanmalı |
-| Train/eval batch | Tek GPU üzerinde 32/32; accumulation 1; effective batch 32 |
-| LR / max epoch | 3e-5 / 7 (seçilmiş BERT Run 02 ile aynı) |
-| Weight decay / warmup | 0.01 / 0.05 → 559 warmup step |
-| Optimizer / scheduler | adamw_torch / linear; planned steps 11172 |
-| Seed/data_seed | 42/42 |
-| Selection | Her epoch validation; max binary F1, patience 2, threshold 0 |
-| Checkpoints | load_best_model_at_end=True; save_total_limit=2 |
-| Precision/runtime | BERT koşullarını explicit kaydet; aynı environment/GPU mümkünse koru |
-
-Model/tokenizer değişimi beklenen ana deney farkıdır; farklı vocab nedeniyle aynı 256 token aynı metin miktarını kapsamayabilir. Öneri: train/validation token uzunluklarını ve truncation oranlarını kaydet; bu analizle test'e göre limit seçme. `BertTokenizerFast`'ı yalnız BERT ailesi adı benziyor diye zorla kullanma; seçilen checkpoint'in tokenizer class'ını model card/config ile doğrula, uygun olduğunda `AutoTokenizer` kullan. `AutoModelForSequenceClassification(...,num_labels=2,label2id=...,id2label=...)` desteğini ve classification head initialization'ını kontrol et. Bilinmeyen checkpoint için `trust_remote_code` gerekliliği varsayılmamalıdır.
-
-Bir kez çalıştırılacak yeni run için training öncesi config ve immutable source revision kaydet; output varsa duracak koruma eklemek önerilir. Aynı library sürümlerini kullanmak amaçlanmalı; uyumsuzluk nedeniyle değişirse exact sürüm ve neden kayıt altına alınmalı. Başka GPU/batch/precision gerekiyorsa sapmayı belirt; effective batch'i korumak için accumulation kullanılması bile BERT'in gerçek step/scheduler koşullarıyla tamamen aynı değildir. OOM durumunda sessiz batch küçültme comparable koşulu bozar.
-
-### MathBERT evaluation uyarlaması
-
-`src/09_evaluate_bert.py` doğrudan MathBERT'e uygulanamaz: model/config/output adresleri, Run 02 assertion ve tokenizer class'ı hardcoded'dur. Öneri: yeni `src/13_evaluate_mathbert.py` veya model/run parametreli ayrı evaluation sürümü; BERT mevcut artifacts'ını koru. Yeni evaluator aynı `load_dataset`, `calculate_metrics`, argmax, label order, max_length/batch config okuma, local saved tokenizer/model ve output overwrite guard'ını korumalıdır. Önce SUM validation ile yalnız teknik uyum doğrulanır; model seçiminden sonra frozen SUM test ve UMWP birer kez değerlendirilir; training/tuning UMWP'ye bakmaz. `models/mathbert/run_01/best_model` içine tokenizer'ın da kaydedilmesi zorunlu operasyonel adımdır.
-
-MathBERT için henüz çalıştırılabilir hazır komut yoktur. Yeni scriptler hazırlanıp incelendikten sonra allocation içinde önerilen komut `python src/12_train_mathbert_run01.py`; yeni evaluator tamamlandıktan sonra `python src/13_evaluate_mathbert.py --dataset sum` ve `--dataset umwp` olacaktır. Bunlar gelecekteki dosya adlarıdır. Config, history, best checkpoint metric, restored-model metric, versions, epoch/step ve model/tokenizer/data hash'lerini beraber saklamak Run 06 benzeri farkları görünür kılar. Sonuç farklarını “MathBERT daha iyi” diye yorumlamadan seed ve tuning budget farklarını açıkla: BERT altı exploratory deneye sahipken tek MathBERT run'ı eşit search budget değildir. Ana comparison matched configuration olarak, eşit budget search yapılırsa ayrı experiment olarak raporlanabilir.
-
-## 12. Sayısal ekler ve veri parmak izleri
-
-Aşağıdaki tablolar mevcut dosyalardan programatik olarak aktarılmıştır. Her run için exact değerlerin nihai kaynağı ilgili JSON/CSV dosyasıdır. History'nin post-training evaluation satırı epoch trajectory tablosunda ayrıca ayrılmıştır.
-
-### 12.1 Run configuration ve best epoch
-
-| Run / script | LR | Max / tamamlanan epoch | Warmup / planned steps | Best epoch / step | Best checkpoint F1 |
+| Run / script | LR | Maximum / completed epoch | Warmup / planned steps | Best epoch / step | Best checkpoint F1 |
 | --- | --- | --- | --- | --- | --- |
 | run_01 / `src/04_train_bert_run01.py` | 2e-05 | 5 / 5.0 | 399 / 7980 | 5.0 / 7980 | 0.8431372549019608 |
 | run_02 / `src/05_train_bert_run02.py` | 3e-05 | 7 / 7.0 | 559 / 11172 | 7.0 / 11172 | 0.8517332845513583 |
@@ -312,9 +234,9 @@ Aşağıdaki tablolar mevcut dosyalardan programatik olarak aktarılmıştır. H
 | run_05 / `src/10_train_bert_run05.py` | 5e-05 | 5 / 5.0 | 399 / 7980 | 5.0 / 7980 | 0.8458781362007168 |
 | run_06 / `src/11_train_bert_run06.py` | 5e-05 | 7 / 7.0 | 559 / 11172 | 5.0 / 7980 | 0.8509703405346027 |
 
-### 12.2 History i?inde maksimum F1 veren validation event
+### 12.2 Original epoch event with maximum validation F1
 
-| Kaynak: run training_history.csv | Loss | Accuracy | Precision | Recall | F1 |
+| Source: run training_history.csv | Loss | Accuracy | Precision | Recall | F1 |
 | --- | --- | --- | --- | --- | --- |
 | `results/bert/run_01/training_history.csv` | 0.4437739849090576 | 0.8450292397660819 | 0.8535580524344569 | 0.83296783625731 | 0.8431372549019608 |
 | `results/bert/run_02/training_history.csv` | 0.629921019077301 | 0.8518823099415205 | 0.8525911005310383 | 0.8508771929824561 | 0.8517332845513583 |
@@ -323,9 +245,9 @@ Aşağıdaki tablolar mevcut dosyalardan programatik olarak aktarılmıştır. H
 | `results/bert/run_05/training_history.csv` | 0.5088651180267334 | 0.846765350877193 | 0.8508042151968941 | 0.8410087719298246 | 0.8458781362007168 |
 | `results/bert/run_06/training_history.csv` | 0.4683046042919159 | 0.8512426900584795 | 0.8525311812179017 | 0.8494152046783626 | 0.8509703405346027 |
 
-### 12.3 Best model restore sonras? JSON validation metrikleri
+### 12.3 Restored-model validation metrics from JSON
 
-| Kaynak: run validation_metrics.json | Loss | Accuracy | Precision | Recall | F1 | epoch metadata |
+| Source: run validation_metrics.json | Loss | Accuracy | Precision | Recall | F1 | epoch metadata |
 | --- | --- | --- | --- | --- | --- | --- |
 | `results/bert/run_01/validation_metrics.json` | 0.4437739849090576 | 0.8450292397660819 | 0.8535580524344569 | 0.83296783625731 | 0.8431372549019608 | 5.0 |
 | `results/bert/run_02/validation_metrics.json` | 0.629921019077301 | 0.8518823099415205 | 0.8525911005310383 | 0.8508771929824561 | 0.8517332845513583 | 7.0 |
@@ -334,9 +256,9 @@ Aşağıdaki tablolar mevcut dosyalardan programatik olarak aktarılmıştır. H
 | `results/bert/run_05/validation_metrics.json` | 0.5088651180267334 | 0.846765350877193 | 0.8508042151968941 | 0.8410087719298246 | 0.8458781362007168 | 5.0 |
 | `results/bert/run_06/validation_metrics.json` | 0.4714003801345825 | 0.8507858187134503 | 0.851235132662397 | 0.8501461988304093 | 0.8506903172716467 | 7.0 |
 
-### 12.4 Checkpoint adresleri ve training s?releri
+### 12.4 Checkpoint paths and training runtimes
 
-Absolute adresler sonu? raporlar?n?n kayd?d?r; bu makinede bu checkpoint dosyalar? yoktur. S?reler history i?indeki `train_runtime` saniyeleridir; queue bekleme/download/setup s?resi olarak yorumlanmamal?d?r.
+Absolute paths are artifact provenance; checkpoints are not present locally. train_runtime is seconds, excluding queue/setup/download time.
 
 | Run | best_checkpoint | train_runtime (s) |
 | --- | --- | --- |
@@ -349,7 +271,7 @@ Absolute adresler sonu? raporlar?n?n kayd?d?r; bu makinede bu checkpoint dosyala
 
 ### 12.5 Epoch history
 
-Her epoch i?in ilk validation event g?sterilir; son restored-model event 12.3 tablosundad?r. Train loss epoch log de?eridir. Kaynaklar her tablonun ba?l???nda belirtilir.
+Tables retain original training-time epoch evaluations. The restored-model event is separate in section 12.3; training loss is the logged epoch loss.
 
 #### `results/bert/run_01/training_history.csv`
 
@@ -419,14 +341,206 @@ Her epoch i?in ilk validation event g?sterilir; son restored-model event 12.3 ta
 | 6.0 | 9576 | 0.12431351702314869 | 0.575013279914856 | 0.8489583333333334 | 0.8500458295142072 | 0.8474049707602339 | 0.8487233458405784 |
 | 7.0 | 11172 | 0.08669894799253994 | 0.7083661556243896 | 0.8496893274853801 | 0.8494977168949772 | 0.8499634502923976 | 0.8497305197771079 |
 
-### 12.6 Sabit veri dosyalar?n?n SHA-256 de?erleri
+### 12.6 Fixed dataset SHA-256 fingerprints
 
-Bu de?erler 17 Kas?m 2026 yerel dosya byte i?eriklerinden hesapland?. Ayn? logical CSV farkl? line ending ile kaydedilirse hash de?i?ebilir. Kar??la?t?rma i?in dosyalar? aynen koruyun.
+Hashes were computed from local file bytes on 2026-11-17 and verified on 2026-11-24. Different CSV line endings may change byte hashes without changing logical records. Preserve the fixed files.
 
-| Dosya | SHA-256 |
+| File | SHA-256 |
 | --- | --- |
 | `data/processed/sum/test.csv` | `7fda226cb432d6cda00dce0a6ac7a0e9aebcf4a8f874b703d2e3428c788549c2` |
 | `data/processed/sum/train.csv` | `c91dd31945eb857a1528ce69f495f36582689271a5a7f5129a1f2e05f0482ed8` |
 | `data/processed/sum/validation.csv` | `5478039d9c39ef5f658b532ec09ffdde41bdd06bddb63a17651f2e7e927339d0` |
 | `data/processed/umwp/test.csv` | `c03cfaeff114eba47454dc09dc925117c38e8a321288c3e5e359c6cf28b568c0` |
 | `data/raw/umwp/StandardDataset.jsonl` | `13adeb41e16d68cea2fcdde55b0f608b604cde4d3f0a0951fa5b89f1919189ba` |
+
+## 13. MATE dataset audit
+
+**MATE** is the new external benchmark. The corrected raw file is `data/raw/mate/MATE Dataset.csv`. It replaces the two legacy MATE files under `data/raw/umwp/3. dataset/`. The official UMWP benchmark remains a separate dataset.
+
+On 2026-11-24, a read-only UTF-8 CSV audit found the exact header `pair_id,text,label,source,category`, with 10,000 data rows and no malformed or ragged records. All IDs, texts, labels and sources are populated. There are 5,000 ANSWERABLE and 5,000 UNANSWERABLE rows. Pair IDs are consecutive integers 1?5,000. Every pair has exactly two distinct question texts, one row per class, and a shared source. There are zero duplicate full rows, zero duplicate question texts and zero conflicting-label text groups, both for exact text and for text normalized using Unicode NFKC, case folding and whitespace collapsing. These checks establish structural integrity. Semantic pairing and label correctness were not adjudicated.
+
+| Source | Rows per class | Total |
+| --- | ---: | ---: |
+| AQuA-RAT | 2,705 | 5,410 |
+| DMath | 1,030 | 2,060 |
+| GSM8K | 865 | 1,730 |
+| ASDiv | 257 | 514 |
+| SVAMP | 78 | 156 |
+| MultiArith | 65 | 130 |
+
+All 5,000 ANSWERABLE categories are empty. UNANSWERABLE codes 1?5 have 1,584, 2,426, 545, 198 and 247 rows respectively. Keep the original source values and category codes, with blanks preserved. The semantic mapping of codes and the dataset's release provenance remain unverified. SHA-256 of the audited raw bytes is `e2cfd8dd2cf9cb2761f68d148765e455f0cdc2cf37bfc61224e4de892e494e52`.
+
+### Pair-level exclusion and prepared benchmark
+
+[13_mate_dataset_analysis.ipynb](notebooks/13_mate_dataset_analysis.ipynb) verifies the recorded raw hash before loading records. It compares literal strings and keys normalized using Unicode NFKC, case folding and whitespace collapsing. Raw MATE shares 179 exact GSM8K questions and 28 additional normalized-only MultiArith questions with UMWP. The 207 questions all have matching ANSWERABLE labels. Both members of every affected pair were excluded to reduce evaluation-set overlap while preserving class balance and complete pairs. This removed 207 pairs and 414 rows (4.14%). No raw MATE match was found in any SUM split.
+
+The processed set contains 9,586 rows in 4,793 complete pairs, with 4,793 rows per class. Assertions verified one row per label per pair, consistent pair sources, required values present, zero exact or normalized duplicate texts or label conflicts, and zero exact and normalized overlap with SUM train, validation, test and UMWP test. The notebook preserves raw row order, original pair IDs, text, categorical labels, sources and category values, including empty categories for ANSWERABLE rows. After exclusion it assigns a unique sequential integer `id` from 1 to 9,586 as the first column in retained file order. The original `pair_id` continues to identify the pair. It adds `label_id` (ANSWERABLE=0, UNANSWERABLE=1) while keeping the standard string `label` column.
+
+| Generated artifact | Contents | SHA-256 |
+| --- | --- | --- |
+| `data/processed/mate/test.csv` | `id,pair_id,text,label,source,category,label_id` | `377f7a28a6b2a5236ce24eeebc889c99ec38ff92c52c9b0a888d71f6542da5b8` |
+| `data/processed/mate/excluded_pairs.csv` | `pair_id,exact_match_rows,normalized_only_match_rows,reason` | `478e7b5ef5bea2d105b07552d25131d000c69dc3660f34db1cbd5317aea86e19` |
+
+The processed test SHA-256 after CRLF-to-LF normalization is `377f7a28a6b2a5236ce24eeebc889c99ec38ff92c52c9b0a888d71f6542da5b8`. It matches the file-byte hash because the notebook exports LF line endings. Both UTF-8 CSV exports were reloaded and verified field by field in saved row order. The raw hash was rechecked after export. Git allowlists the processed test CSV and exclusion ledger explicitly. Both are currently untracked. Text-level overlap checks cannot establish semantic independence or exclude pretraining exposure.
+
+### Evaluation integration
+
+Use `--dataset mate` with the encoder, local LLM and OpenAI API entry points. The shared loader in `src/25_evaluate_qwen.py` pins the LF-normalized hash and exact column order, and checks the row count, class balance, sequential `id`, complete `pair_id` groups and agreement between string and numeric labels. The three encoder scripts reuse that MATE validator, retain the MATE metadata in predictions, and preflight a separate `mate/` result directory beneath each selected run. The encoder `both` option still means SUM and UMWP.
+
+Local LLM and hosted API outputs inherit the shared loader and preserve `id` as the question identifier and `pair_id` as metadata. The SQLite response key remains the zero-based row index. API resume binds that index to the fixed dataset hash, row order and run settings through the checkpoint manifest. Full and limited runs use separate paths. All seven local LLM Slurm wrappers accept MATE, including the existing standard Phi-4 prompt variants and smoke overrides. Question text remains the only model input.
+
+Offline checks passed for all 12 Python CLI entry points, all dataset loaders, MATE metadata and encoder overwrite guards, API checkpoint isolation and resume, and Bash syntax and option dispatch for all seven wrappers. The 59 existing offline evaluator tests passed. No MATE model runs have been performed. For Mercury, publish the code and allowlisted CSVs through the usual reviewed Git workflow, then pull and verify the dataset fingerprint before running jobs.
+
+
+## 14. Zero-shot LLM protocol and completed runs
+
+The original frozen prompt is defined in `src/25_evaluate_qwen.py` and stored in run metadata.
+
+```text
+Determine whether the following math problem can be answered using the information provided.
+
+Respond with exactly one label:
+ANSWERABLE or UNANSWERABLE.
+
+Do not solve the problem or provide an explanation.
+
+Math problem:
+{question}
+
+Label:
+```
+
+Each run uses the fixed SUM test or full official UMWP CSV in saved row order. The local evaluators use one user message serialized by the model's native chat template, zero-shot, BF16 on an A100 80 GB PCIe, no quantization, greedy decoding, one beam and at most 16 new tokens. Qwen disables thinking explicitly. Apertus uses its default thinking-off mode. Mistral uses native Tekken serialization, Gemma its processor template and standard Phi-4 native ChatML. Per-run JSON records model ID, prompt, dataset hash and runtime settings. Byte hashes can differ across checkouts with different line endings.
+
+Surrounding whitespace is trimmed. Only the two exact uppercase labels are valid. INVALID counts as incorrect for full-dataset accuracy, occupies its own confusion-matrix column and contributes a missed positive when the true label is UNANSWERABLE. Precision, recall and F1 use UNANSWERABLE as positive, with zero for undefined denominators. The API shares the parser.
+
+### Original frozen prompt, strict scoring
+
+Scores are percentages. The archived metrics are in `results/llm/<slug>/<dataset>/run_01/metrics.json` and `results/api/openai/gpt-6.1-terra/<dataset>/run_01/metrics.json`. Here `sum` is the 10,944-row SUM Test and `umwp` is the full 5,200-row external benchmark.
+
+| Model | Dataset | Accuracy | Precision | Recall | F1 | INVALID rows |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen3.6-27B | SUM Test | 88.10 | 90.87 | 84.72 | 87.69 | 0 |
+| Qwen3.6-27B | UMWP | 93.19 | 94.11 | 92.15 | 93.12 | 0 |
+| Apertus v1.5-8B | SUM Test | 55.51 | 89.96 | 12.45 | 21.87 | 21 |
+| Apertus v1.5-8B | UMWP | 55.69 | 94.63 | 12.19 | 21.60 | 20 |
+| Mistral Small 3.2 24B | SUM Test | 74.57 | 86.13 | 58.57 | 69.73 | 0 |
+| Mistral Small 3.2 24B | UMWP | 80.96 | 94.48 | 65.77 | 77.55 | 0 |
+| Gemma 3 27B IT | SUM Test | 73.88 | 70.18 | 83.02 | 76.07 | 0 |
+| Gemma 3 27B IT | UMWP | 86.85 | 93.59 | 79.12 | 85.74 | 0 |
+| Standard Phi-4 14B | UMWP | 48.50 | 0.00 | 0.00 | 0.00 | 1943 |
+| GPT-6.1 Terra (API) | SUM Test | 86.04 | 90.93 | 80.06 | 85.15 | 0 |
+| GPT-6.1 Terra (API) | UMWP | 92.42 | 95.17 | 89.38 | 92.19 | 0 |
+
+### Standard Phi-4 prompt sensitivity and offline postprocessing
+
+Standard `microsoft/phi-4` (14B) is distinct from Phi-4-reasoning-plus. UMWP `run_01` used the original prompt. `src/32_evaluate_phi4_prompt_sensitivity.py` removes the period after `UNANSWERABLE` in the label instruction for `run_02`, retaining the strict parser. The standard evaluator and SLURM wrapper expose a failed-smoke override for documented sensitivity work. An original-prompt SUM result is absent.
+
+| Dataset | Condition | Accuracy | Precision | Recall | F1 | INVALID rows |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| SUM Test | Modified prompt, strict | 67.01 | 84.67 | 50.27 | 63.09 | 1683 |
+| SUM Test | Modified prompt, offline extraction | 79.30 | 83.01 | 73.68 | 78.07 | 0 |
+| UMWP | Modified prompt, strict | 81.69 | 96.52 | 66.12 | 78.48 | 115 |
+| UMWP | Modified prompt, offline extraction | 83.73 | 96.26 | 70.19 | 81.18 | 0 |
+
+Strict results are archived under `results/llm/phi-4/<dataset>/run_02/`. The paired `run_02_cleaned/predictions.csv` files apply researcher-initiated label extraction to the stored generations. Comparison by row confirms that previously invalid responses were replaced by the exact label on the first nonblank line (1,683 SUM and 115 UMWP). All true labels, texts, generated token IDs and cap flags are unchanged. The cleaned scores above are computed from those CSVs. Cite the preserved strict CSVs for verbatim model output. Treat the prompt change and the parser change as separate sensitivity conditions, outside the original frozen-prompt comparison.
+
+### GPT-6.1 Terra API
+
+`src/33_evaluate_openai.py` uses the original prompt with OpenAI Chat Completions, SDK 2.54.0, temperature 0, reasoning effort `none`, `max_completion_tokens=16`, `store=false` and `service_tier=default` (Standard). Tokenization and serving are provider-managed, and generated token IDs are unavailable. Both full runs record all rows received, with the returned ID `gpt-6.1-terra`, all finish reasons `stop`, and zero INVALID outputs.
+
+| Saved run | Completed requests | Input tokens | Output tokens | Total tokens | Estimated USD |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SUM Test | 10,944 | 1,241,573 | 59,538 | 1,301,111 | 1.539263 |
+| UMWP | 5,200 | 506,868 | 28,442 | 535,310 | 0.649078 |
+| UMWP first-10 smoke | 10 | 857 | 50 | 907 | 0.001107 |
+
+The locally untracked smoke artifacts are under `results/api/openai/gpt-6.1-terra/umwp/limit_10/run_01/`. All ten gold labels were ANSWERABLE, all ten predictions were correct, and positive-class precision/recall/F1 were 0 by the zero-denominator convention. This is an API pipeline check. Cost figures come from archived usage and pricing estimates. [API setup and resume guide](OPENAI_EVALUATION.md)
+
+### Blocked or limited model attempts
+
+- **Meta Llama 3.3 70B Instruct:** `src/29_evaluate_llama.py` targets `meta-llama/Llama-3.3-70B-Instruct` in unquantized BF16 across two Mercury A100s. The reported GPU-transfer issue concerns activations crossing from layer 39 on `cuda:0` to layer 40 on `cuda:1`. The evaluator contains forward, activation, boundary and transfer diagnostics. The boundary probe compares pre-transfer values, Accelerate-aligned inputs and an explicit GPU copy. `src/diagnose_cuda_transfer.py` independently checks host-to-device and both GPU-to-GPU directions with exact value comparisons. There are no saved benchmark metrics or diagnostic logs in this checkout, so the failure mechanism and Mercury's current state remain unverified. Complete the Meta evaluation on Mercury using a smaller single-GPU model if 70B remains unreliable, and record the actual model ID and runtime.
+- **Phi-4-reasoning-plus:** `src/30_evaluate_phi4.py` targets `microsoft/Phi-4-reasoning-plus` with a native template that inserts a reasoning system message. Reasoning text can consume the 16-token budget before a final label, and a completed reasoning trace still fails strict whole-response matching. The diagnostic tests budgets 16/64/256/512 on two probes and can extract a standalone final label after a completed reasoning block. Those diagnostic conditions differ from the benchmark protocol. There is no full saved result, so use the standard Phi-4 artifacts for the completed Microsoft family evaluation.
+
+## 15. Repository inventory
+
+### Evaluation entry points
+
+| Script | Purpose | Batch wrapper |
+| --- | --- | --- |
+| `src/25_evaluate_qwen.py` | Qwen3.6-27B and shared prompt/parser, metrics and result writing | `slurm/evaluate_qwen.sh` |
+| `src/26_evaluate_apertus.py` | Apertus v1.5-8B | `slurm/evaluate_apertus.sh` |
+| `src/27_evaluate_mistral.py` | Mistral Small 3.2 24B Instruct | `slurm/evaluate_mistral.sh` |
+| `src/28_evaluate_gemma.py` | Gemma 3 27B IT | `slurm/evaluate_gemma.sh` |
+| `src/29_evaluate_llama.py` | Llama 3.3 70B Instruct and multi-GPU debugging | `slurm/evaluate_llama.sh` |
+| `src/30_evaluate_phi4.py` | Phi-4-reasoning-plus and reasoning diagnostic | `slurm/evaluate_phi4.sh` |
+| `src/31_evaluate_phi4_standard.py` | Standard Phi-4 original prompt | `slurm/evaluate_phi4_standard.sh` |
+| `src/32_evaluate_phi4_prompt_sensitivity.py` | Standard Phi-4 modified prompt | `slurm/evaluate_phi4_standard.sh` |
+| `src/33_evaluate_openai.py` | OpenAI API evaluation and resumable SQLite ledger | Local Windows workflow |
+| `src/diagnose_cuda_transfer.py` | Model-free GPU transfer diagnostic | `slurm/diagnose_cuda_transfer.sh` |
+
+The earlier script inventory covers `src/01_*` through `src/24_*`. Tests live in `tests/` and cover the training workflow, each LLM evaluator and CUDA transfer diagnostics. Encoder training manifests are `configs/training_runs.json` and `configs/training_runs07_08.json`. API dependencies are in `requirements-api.txt`.
+
+### LLM notebooks
+
+- [07_qwen_evaluation_analysis.ipynb](notebooks/07_qwen_evaluation_analysis.ipynb)
+- [08_apertus_evaluation_analysis.ipynb](notebooks/08_apertus_evaluation_analysis.ipynb)
+- [09_mistral_evaluation_analysis.ipynb](notebooks/09_mistral_evaluation_analysis.ipynb)
+- [10_gemma_evaluation_analysis.ipynb](notebooks/10_gemma_evaluation_analysis.ipynb)
+- [11_phi4_evaluation_analysis.ipynb](notebooks/11_phi4_evaluation_analysis.ipynb)
+- [12_gpt_terra_evaluation_analysis.ipynb](notebooks/12_gpt_terra_evaluation_analysis.ipynb)
+
+All twelve notebooks parse as JSON and contain saved execution outputs with no recorded error cells. This audit did not execute them.
+
+### Result paths
+
+- `results/bert/run_01`?`run_06`, `results/mathbert/run_01`?`run_05`, and `results/{deberta,modernbert}/run_01`?`run_08` hold encoder training artifacts, including failed DeBERTa Run 01. Only the selected runs contain `sum_test/` and `umwp/`.
+- `results/llm/{qwen3.6-27b,apertus-v1.5-8b,mistral-small-3.2-24b,gemma-3-27b-it}/{sum,umwp}/run_01/` contains the frozen strict prediction, metrics and confusion-matrix files.
+- `results/llm/phi-4/{sum,umwp}/{run_02,run_02_cleaned}/` and `results/llm/phi-4/umwp/run_01/` hold the Phi-4 conditions. Cleaned directories contain predictions only.
+- `results/api/openai/gpt-6.1-terra/{sum,umwp}/run_01/` and `results/api/openai/gpt-6.1-terra/umwp/limit_10/run_01/` hold API outputs and metadata. SQLite checkpoints are ignored.
+- `results/encoder_training_comparison.md` and `results/final_test_comparison.md` are existing local reports.
+
+## 16. Encoder run register
+
+This table uses `best_checkpoint_validation_f1` and the recorded checkpoint step from each run's validation JSON. The planned epoch budget comes from the saved configuration. At 1,596 steps per epoch, checkpoint step identifies the selected epoch.
+
+| Family | Run | LR | Planned epochs | Best epoch | Checkpoint step | Validation F1 (%) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| BERT | run_01 | 2e-05 | 5 | 5 | 7980 | 84.31 |
+| BERT | run_02 (selected) | 3e-05 | 7 | 7 | 11172 | 85.17 |
+| BERT | run_03 | 2e-05 | 7 | 7 | 11172 | 84.98 |
+| BERT | run_04 | 4e-05 | 7 | 7 | 11172 | 85.13 |
+| BERT | run_05 | 5e-05 | 5 | 5 | 7980 | 84.59 |
+| BERT | run_06 | 5e-05 | 7 | 5 | 7980 | 85.10 |
+| MathBERT | run_01 | 3e-05 | 7 | 7 | 11172 | 78.01 |
+| MathBERT | run_02 | 2e-05 | 7 | 5 | 7980 | 77.37 |
+| MathBERT | run_03 | 4e-05 | 5 | 4 | 6384 | 77.39 |
+| MathBERT | run_04 (selected) | 4e-05 | 7 | 5 | 7980 | 78.16 |
+| MathBERT | run_05 | 5e-05 | 7 | 2 | 3192 | 75.20 |
+| DeBERTa-v3-base | run_01 (failed) | 3e-05 | 7 | 1 | 1596 | 0.00 |
+| DeBERTa-v3-base | run_02 | 3e-05 | 7 | 7 | 11172 | 87.14 |
+| DeBERTa-v3-base | run_03 | 2e-05 | 7 | 7 | 11172 | 86.52 |
+| DeBERTa-v3-base | run_04 | 4e-05 | 7 | 7 | 11172 | 87.11 |
+| DeBERTa-v3-base | run_05 (selected) | 5e-05 | 7 | 7 | 11172 | 87.24 |
+| DeBERTa-v3-base | run_06 | 3e-05 | 5 | 5 | 7980 | 86.90 |
+| DeBERTa-v3-base | run_07 | 6e-05 | 7 | 6 | 9576 | 86.51 |
+| DeBERTa-v3-base | run_08 | 5e-05 | 10 | 5 | 7980 | 86.88 |
+| ModernBERT-base | run_01 | 3e-05 | 5 | 5 | 7980 | 87.52 |
+| ModernBERT-base | run_02 | 3e-05 | 7 | 7 | 11172 | 87.23 |
+| ModernBERT-base | run_03 | 4e-05 | 5 | 5 | 7980 | 87.39 |
+| ModernBERT-base | run_04 | 4e-05 | 7 | 7 | 11172 | 87.77 |
+| ModernBERT-base | run_05 | 5e-05 | 5 | 4 | 6384 | 87.61 |
+| ModernBERT-base | run_06 (selected) | 5e-05 | 7 | 7 | 11172 | 87.94 |
+| ModernBERT-base | run_07 | 6e-05 | 7 | 7 | 11172 | 87.89 |
+| ModernBERT-base | run_08 | 5e-05 | 10 | 5 | 7980 | 87.35 |
+
+The four validation selections and frozen test results follow. Each test cell reports accuracy / UNANSWERABLE precision / recall / F1 as percentages. The full artifacts also include macro-F1, predictions and confusion matrices.
+
+| Encoder | Selected run | Evaluator loaded under `models/` | SUM Test | UMWP |
+| --- | --- | --- | --- | --- |
+| BERT | run_02 | `bert/run_02/best_model/` | 84.80 / 85.46 / 83.86 / 84.65 | 67.62 / 73.02 / 55.88 / 63.31 |
+| MathBERT | run_04 | `mathbert/run_04/best_model/` | 77.79 / 78.50 / 76.54 / 77.51 | 59.00 / 59.47 / 56.50 / 57.95 |
+| DeBERTa-v3-base | run_05 | `deberta/run_05/checkpoints/checkpoint-11172/` | 86.71 / 86.39 / 87.13 / 86.76 | 71.25 / 75.24 / 63.35 / 68.78 |
+| ModernBERT-base | run_06 | `modernbert/run_06/checkpoints/checkpoint-11172/` | 87.61 / 90.32 / 84.25 / 87.18 | 69.69 / 79.66 / 52.88 / 63.57 |
+
+See [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md) for the worktree state and prioritized handover.
