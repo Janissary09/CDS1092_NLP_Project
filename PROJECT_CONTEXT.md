@@ -10,7 +10,7 @@ Read [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md) **first** for current status and
 
 The FH Graubünden CDS1092 project predicts **answerability of mathematical word problems**, not their numerical solutions. ANSWERABLE means sufficient information for a unique answer; UNANSWERABLE includes missing, ambiguous, contradictory or insufficient information. Mapping: **ANSWERABLE=0, UNANSWERABLE=1**, positive class UNANSWERABLE. Only question text is input (`README.md`; `src/05_train_bert_run02.py::LABEL_TO_ID`, `compute_metrics`).
 
-The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. All four selected encoders have saved MATE evaluations. The local LLM MATE results in `4c155fe` cover Apertus, Gemma, Mistral, Qwen and standard Phi-4. The Meta Llama 3.1-8B-Instruct Mercury smoke test and all three benchmark runs remain pending.
+The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. All four selected encoders have saved MATE evaluations. The local LLM MATE results in `4c155fe` cover Apertus, Gemma, Mistral, Qwen and standard Phi-4. Meta Llama 3.1-8B-Instruct completed its Mercury smoke test with one classification error. Its three benchmark runs remain pending.
 
 The sibling LaTeX draft frames FF1 as fine-tuned encoder versus zero-shot classification, FF2 as transfer to external data, and FF3 as error analysis and implications for training and prompting. The comparison measures complete approaches with differing scale, pretraining, and access to task-specific training data. Formal directional hypotheses and a significance protocol are absent from the repository.
 
@@ -18,7 +18,7 @@ Gemma replaces the previously planned Gemini evaluation. The selected roster cov
 
 ## 2. Repository and sources
 
-Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `4c155fe`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
+Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `5d7bdca`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
 
 ```text
 CDS1092_NLP_Project/
@@ -490,7 +490,22 @@ cd ~/projects/CDS1092_NLP_Project
 sbatch --time=00:15:00 slurm/evaluate_llama.sh smoke
 ```
 
-The smoke test loads the single-GPU checkpoint once, verifies placement, and runs two synthetic prompts with benchmark settings. It requires both expected strict labels without hitting the cap and logs decoded text, token IDs, cap flags and peak memory. The smoke test and benchmark runs are pending. Offline checks covered syntax and CLI routing, fixed dataset hashes, isolated result paths, mocked placement and decoding, strict smoke pass/fail behavior and shared checkpoint regressions.
+The smoke test loads the single-GPU checkpoint once, verifies placement, and runs two synthetic prompts with benchmark settings. It requires both expected strict labels without hitting the cap and logs decoded text, token IDs, cap flags and peak memory.
+
+Mercury job 1895 successfully loaded Llama 3.1-8B-Instruct in BF16 on one NVIDIA A100 80 GB PCIe at `cuda:0`. Peak allocated memory was 14.99 GiB. The ANSWERABLE probe was correct. The UNANSWERABLE probe was classified as ANSWERABLE. Both outputs passed strict parsing. The overall smoke status was failure due to the incorrect classification.
+
+A two-question smoke test checks technical readiness and gives a small behavioral signal. The full fixed benchmark measures classification performance. Following the Phi-4 approach, benchmark invocations run the same probes first and stop by default if either fails. An explicit `--allow-failed-smoke` allows scoring after a completed failed probe check. Model-loading, CUDA and generation exceptions still abort. The same loaded model continues into the benchmark, with the prompt, decoding, strict parser and scoring unchanged. The run manifest and exported metrics record `smoke_test_passed`, `allow_failed_smoke` and `failed_smoke_override_applied`. Use the same flag when resuming a run with that manifest.
+
+From the Mercury project root, after deploying the override:
+
+```bash
+sbatch slurm/evaluate_llama.sh sum run_01 --allow-failed-smoke
+sbatch slurm/evaluate_llama.sh umwp run_01 --allow-failed-smoke
+sbatch slurm/evaluate_llama.sh mate run_01 --allow-failed-smoke
+```
+
+All three benchmarks remain pending. Offline checks passed for the default gate, override metadata, technical error propagation and Bash argument routing. The GPT-6.1 Terra MATE API run was reported in progress locally during this update.
+
 
 ## 15. Repository inventory
 

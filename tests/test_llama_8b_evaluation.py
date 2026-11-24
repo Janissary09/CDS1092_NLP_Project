@@ -1,5 +1,7 @@
 """Offline checks for the single-GPU Llama evaluator."""
 
+from contextlib import redirect_stderr
+from io import StringIO
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
@@ -44,16 +46,19 @@ class Llama8BEvaluationTests(unittest.TestCase):
                 self.assertEqual(evaluator.load_config(), config)
 
     def test_cli_dispatches_smoke_and_dataset_with_valid_arguments(self):
-        torch = object()
+        torch = SimpleNamespace(cuda=Mock())
         transformers = SimpleNamespace(LlamaForCausalLM=object())
         gpu = object()
         with (patch.dict(sys.modules, {"torch": torch, "transformers": transformers}),
               patch.object(evaluator, "require_gpu", return_value=gpu),
               patch.object(evaluator, "load_config"),
+              patch.object(evaluator, "load_generator") as load_generator,
               patch.object(evaluator, "smoke_test", return_value=0) as smoke):
             with patch.object(sys, "argv", [spec.origin, "--smoke-test"]):
                 self.assertEqual(evaluator.main(), 0)
-            smoke.assert_called_once_with(torch, transformers, gpu)
+            smoke.assert_called_once_with(
+                torch, load_generator.return_value, gpu, torch.cuda.max_memory_allocated.return_value,
+            )
 
             for dataset in ("sum", "umwp", "mate"):
                 with (self.subTest(dataset=dataset),
@@ -124,16 +129,96 @@ class Llama8BEvaluationTests(unittest.TestCase):
         torch = SimpleNamespace(cuda=Mock())
         torch.cuda.max_memory_allocated.return_value = 16 * 1024**3
         gpu = SimpleNamespace(name="A100")
-        for second, status in (("UNANSWERABLE", 0), ("UNANSWERABLE.", 1)):
+        for second, status in (("UNANSWERABLE", 0), ("UNANSWERABLE.", 1), ("ANSWERABLE", 1)):
             generate = Mock(side_effect=[
                 ("ANSWERABLE", [7, 128009], False), (second, [8, 128009], False),
             ])
-            with (patch.object(evaluator, "load_generator", return_value=generate),
-                  patch("builtins.print") as output):
-                self.assertEqual(evaluator.smoke_test(torch, object(), gpu), status)
+            with patch("builtins.print") as output:
+                self.assertEqual(evaluator.smoke_test(torch, generate, gpu, 16 * 1024**3), status)
                 result = json.loads(output.call_args.args[0])
                 self.assertEqual(result["passed"], status == 0)
                 self.assertEqual(result["device"], "cuda:0")
+
+
+    def test_smoke_override_requires_dataset(self):
+        stderr = StringIO()
+        with (patch.object(sys, "argv", [spec.origin, "--smoke-test", "--allow-failed-smoke"]),
+              redirect_stderr(stderr), self.assertRaises(SystemExit) as error):
+            evaluator.main()
+        self.assertEqual(error.exception.code, 2)
+        self.assertIn("--allow-failed-smoke requires --dataset", stderr.getvalue())
+
+    def test_benchmark_smoke_gate_and_exported_metadata(self):
+        torch = SimpleNamespace(cuda=Mock(), __version__="offline",
+                                version=SimpleNamespace(cuda="offline"))
+        torch.cuda.max_memory_allocated.return_value = 0
+        transformers = SimpleNamespace(LlamaForCausalLM=object(), __version__="offline")
+        gpu = SimpleNamespace(name="A100")
+        config = {"model_type": "llama", "architectures": [evaluator.ARCHITECTURE]}
+        rows = [{"id": "1", "text": "Benchmark question?", "label": "ANSWERABLE"}]
+        argv = [spec.origin, "--dataset", "mate", "--run-id", "run_01"]
+
+        for second, override, status in (
+            ("ANSWERABLE", False, 1), ("ANSWERABLE", True, 0),
+            ("UNANSWERABLE", False, 0), ("UNANSWERABLE", True, 0),
+        ):
+            with self.subTest(second=second, override=override), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "run_01"
+                generate = Mock(side_effect=[
+                    ("ANSWERABLE", [7], False), (second, [8], False), ("ANSWERABLE", [9], False),
+                ])
+                flags = ["--allow-failed-smoke"] if override else []
+                with (
+                    patch.dict(sys.modules, {"torch": torch, "transformers": transformers}),
+                    patch.object(sys, "argv", argv + flags),
+                    patch.object(evaluator, "require_gpu", return_value=gpu),
+                    patch.object(evaluator, "load_config", return_value=config),
+                    patch.object(evaluator, "load_generator", return_value=generate) as load_model,
+                    patch.object(evaluator, "output_path", return_value=output),
+                    patch.object(evaluator, "version", return_value="offline"),
+                    patch.object(evaluator.signal, "signal"),
+                    patch.object(evaluator.shared, "load_dataset", return_value=(rows, "digest")) as load,
+                    patch.object(evaluator.shared, "model_fingerprint", return_value="fingerprint"),
+                    patch("builtins.print"),
+                ):
+                    self.assertEqual(evaluator.main(), status)
+                load_model.assert_called_once_with(torch, transformers)
+                if status:
+                    load.assert_not_called()
+                    self.assertFalse(output.exists())
+                    self.assertEqual(generate.call_count, 2)
+                else:
+                    load.assert_called_once_with(ROOT, "mate")
+                    run = json.loads((output / "metrics.json").read_text(encoding="utf-8"))["run"]
+                    self.assertEqual(run["smoke_test_passed"], second == "UNANSWERABLE")
+                    self.assertEqual(run["allow_failed_smoke"], override)
+                    self.assertEqual(run["failed_smoke_override_applied"], second == "ANSWERABLE")
+                    self.assertEqual(generate.call_count, 3)
+
+    def test_override_does_not_swallow_technical_errors(self):
+        torch = SimpleNamespace(cuda=Mock())
+        transformers = SimpleNamespace(LlamaForCausalLM=object())
+        torch.cuda.max_memory_allocated.return_value = 0
+        argv = [spec.origin, "--dataset", "mate", "--run-id", "run_01", "--allow-failed-smoke"]
+        for failure_stage in ("require_gpu", "load_generator", "generate", "synchronize"):
+            with self.subTest(failure_stage=failure_stage):
+                failure = RuntimeError(f"Technical failure: {failure_stage}")
+                torch.cuda.synchronize.side_effect = failure if failure_stage == "synchronize" else None
+                generate = Mock(side_effect=failure)
+                with (
+                    patch.dict(sys.modules, {"torch": torch, "transformers": transformers}),
+                    patch.object(sys, "argv", argv),
+                    patch.object(evaluator, "require_gpu",
+                                 side_effect=failure if failure_stage == "require_gpu" else None),
+                    patch.object(evaluator, "load_config"),
+                    patch.object(evaluator, "load_generator", return_value=generate,
+                                 side_effect=failure if failure_stage == "load_generator" else None),
+                    patch.object(evaluator.shared, "load_dataset") as load,
+                    self.assertRaises(RuntimeError) as error,
+                ):
+                    evaluator.main()
+                self.assertIs(error.exception, failure)
+                load.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
 import signal
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -127,11 +128,7 @@ def load_generator(torch, transformers):
     return generate
 
 
-def smoke_test(torch, transformers, gpu):
-    torch.cuda.reset_peak_memory_stats(0)
-    generate = load_generator(torch, transformers)
-    torch.cuda.synchronize(0)
-    load_peak = torch.cuda.max_memory_allocated(0)
+def smoke_test(torch, generate, gpu, load_peak):
     responses = []
     for question, expected in SMOKE_PROBES:
         raw, ids, hit_limit = generate(shared.PROMPT.format(question=question))
@@ -158,9 +155,13 @@ def main():
     mode.add_argument("--dataset", choices=shared.DATASETS)
     mode.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--run-id", choices=["run_01"])
+    parser.add_argument("--allow-failed-smoke", action="store_true",
+                        help="Continue a dataset evaluation after a completed smoke test fails")
     args = parser.parse_args()
     if (args.dataset is None) == (args.run_id is not None):
         parser.error("Use --smoke-test alone, or --dataset with --run-id run_01")
+    if args.smoke_test and args.allow_failed_smoke:
+        parser.error("--allow-failed-smoke requires --dataset")
 
     import torch
     import transformers
@@ -169,8 +170,16 @@ def main():
         raise RuntimeError(f"Transformers must provide {ARCHITECTURE}")
     gpu = require_gpu(torch)
     config = load_config()
-    if args.smoke_test:
-        return smoke_test(torch, transformers, gpu)
+    torch.cuda.reset_peak_memory_stats(0)
+    generate = load_generator(torch, transformers)
+    torch.cuda.synchronize(0)
+    load_peak = torch.cuda.max_memory_allocated(0)
+    smoke_status = smoke_test(torch, generate, gpu, load_peak)
+    if args.smoke_test or (smoke_status != 0 and not args.allow_failed_smoke):
+        return smoke_status
+    if smoke_status != 0:
+        print("Smoke test failed. Continuing benchmark evaluation with --allow-failed-smoke.",
+              file=sys.stderr, flush=True)
 
     rows, dataset_hash = shared.load_dataset(ROOT, args.dataset)
     output = output_path(ROOT, args.dataset, args.run_id)
@@ -189,6 +198,10 @@ def main():
         "max_new_tokens": shared.MAX_NEW_TOKENS, "torch_version": str(torch.__version__),
         "transformers_version": transformers.__version__, "cuda_version": torch.version.cuda,
         "invalid_output_policy": shared.INVALID_POLICY,
+        # Keep variable GPU memory measurements in the smoke log so resumes can match the manifest.
+        "smoke_test_passed": smoke_status == 0,
+        "allow_failed_smoke": args.allow_failed_smoke,
+        "failed_smoke_override_applied": smoke_status != 0 and args.allow_failed_smoke,
     }
     received_signal = 0
 
@@ -201,7 +214,6 @@ def main():
     with closing(shared.open_checkpoint(output / "checkpoint.sqlite3", manifest)) as connection:
         if not shared.export_results(connection, rows, output, manifest):
             if not received_signal:
-                generate = load_generator(torch, transformers)
                 shared.evaluate(connection, rows, generate, lambda: bool(received_signal))
             if not shared.export_results(connection, rows, output, manifest):
                 print(f"Incomplete run. Resume using the same dataset and run ID: {output}")
