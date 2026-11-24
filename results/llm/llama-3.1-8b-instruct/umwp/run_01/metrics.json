@@ -1,0 +1,71 @@
+{
+  "num_examples": 5200,
+  "num_invalid": 1,
+  "invalid_rate": 0.0001923076923076923,
+  "accuracy": 0.553076923076923,
+  "precision_unanswerable": 0.9207317073170732,
+  "recall_unanswerable": 0.11615384615384615,
+  "f1_unanswerable": 0.2062841530054645,
+  "positive_class": "UNANSWERABLE",
+  "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero.",
+  "confusion_matrix": [
+    [
+      2574,
+      26,
+      0
+    ],
+    [
+      2297,
+      302,
+      1
+    ]
+  ],
+  "confusion_matrix_rows": [
+    "ANSWERABLE",
+    "UNANSWERABLE"
+  ],
+  "confusion_matrix_columns": [
+    "ANSWERABLE",
+    "UNANSWERABLE",
+    "INVALID"
+  ],
+  "run": {
+    "dataset": "umwp",
+    "dataset_sha256": "92df3bed2d3cee139c6ddbca2673fca0a1687aa9f90b3cac27b2627605d90ecb",
+    "row_count": 5200,
+    "run_id": "run_01",
+    "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+    "model_path": "models/Llama-3.1-8B-Instruct",
+    "model_type": "llama",
+    "model_architectures": [
+      "LlamaForCausalLM"
+    ],
+    "model_sha256": "aad5ec76517bb5f5dd91b8deb5e333345e6950ed06a2e6f3854170794f4f3946",
+    "evaluator_sha256": "cd95550e21b43817da90cf645c66f842f33a5c9351eb161ade7d02d2e71493d2",
+    "shared_evaluator_sha256": "9a1a360dc9f154d3b71910a8370377b4138e99529728d9d79aa87f8f7791cf60",
+    "prompt": "Determine whether the following math problem can be answered using the information provided.\n\nRespond with exactly one label:\nANSWERABLE or UNANSWERABLE.\n\nDo not solve the problem or provide an explanation.\n\nMath problem:\n{question}\n\nLabel:",
+    "chat_template": "Llama tokenizer native chat template, one user message",
+    "model_api": "LlamaForCausalLM",
+    "tokenizer_api": "AutoTokenizer",
+    "dtype": "bfloat16",
+    "quantization": null,
+    "device_map": {
+      "": 0
+    },
+    "cpu_offload": false,
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "accelerate_version": "1.15.0",
+    "tokenizers_version": "0.23.3",
+    "requested_temperature": 0,
+    "do_sample": false,
+    "num_beams": 1,
+    "max_new_tokens": 16,
+    "torch_version": "2.11.0+cu128",
+    "transformers_version": "5.22.2",
+    "cuda_version": "12.8",
+    "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero.",
+    "smoke_test_passed": false,
+    "allow_failed_smoke": true,
+    "failed_smoke_override_applied": true
+  }
+}
