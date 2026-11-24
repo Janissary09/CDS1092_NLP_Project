@@ -18,6 +18,7 @@ The project classifies the answerability of mathematical word problems using que
 Twenty-six encoder training runs are complete. DeBERTa Run 01 failed with non-finite training loss. Selected checkpoints are absent locally and their retention on Mercury remains unverified. See [the saved encoder test comparison](results/final_test_comparison.md).
 
 - **Complete, original frozen prompt:** Qwen3.6-27B, Apertus v1.5-8B, Mistral Small 3.2 24B, Gemma 3 27B IT and GPT-6.1 Terra each have full SUM Test and UMWP results. Qwen leads these LLM runs by positive-class F1 on SUM Test (87.69%) and UMWP (93.12%). GPT-6.1 Terra's full API F1 is 85.15% and 92.19% respectively, with zero INVALID responses on either dataset.
+- **GPT-6.1 Terra MATE complete:** All 9,586 responses match the fixed benchmark, with 85.43% accuracy, 92.54% UNANSWERABLE precision, 77.07% recall, 84.10% F1 and zero INVALID responses. Resume with `--retry-uncertain` completed zero-based row 8825 (MATE ID 8826). The original pending attempt remains in the ledger alongside the successful retry. Recorded usage was 970,577 tokens, estimated at USD 1.178265. The first attempt may have incurred an additional unrecorded charge. [Independent validation and usage](PROJECT_CONTEXT.md#gpt-61-terra-api)
 - **Complete, standard Phi-4:** Original-prompt strict UMWP F1 is 0.00%. Removing the period in the label instruction yields strict F1 of 63.09% on SUM Test and 78.48% on UMWP. Offline extraction from those same modified-prompt generations yields 78.07% and 81.18%. Keep these three conditions separate.
 - **Standard Phi-4 on MATE:** Original-prompt strict `run_01` scored 0.13% UNANSWERABLE F1 with 3,074 INVALID outputs. Modified-prompt strict `run_02` scored 66.69% F1 with 205 INVALID outputs. The new offline `run_02_cleaned` result scored 69.30% F1 with zero INVALID outputs by extracting the first non-empty line of the 205 strict invalid responses. All 9,586 rows and raw responses were preserved, and metrics and confusion matrices were independently verified. [MATE conditions and artifact paths](PROJECT_CONTEXT.md#standard-phi-4-mate-conditions)
 - **Meta Llama:** Mercury job 1894 passed all eight CPU-to-GPU checks and failed all eight GPU-to-GPU checks. Both transfer directions silently corrupted FP32 and BF16 values. The root cause is unconfirmed. Llama 3.1-8B-Instruct replaces the unquantized two-GPU 70B setup. The 8B model is reported downloaded on Mercury. The single-A100 BF16 integration passed offline checks. The 70B model and diagnostics were retained separately. Mercury job 1895 loaded successfully in BF16 on NVIDIA A100 80 GB PCIe at cuda:0 (14.99 GiB peak allocated). Both outputs were valid strict labels. The ANSWERABLE probe was correct and the UNANSWERABLE probe returned ANSWERABLE, so the smoke test failed on classification. The explicit benchmark override is implemented and offline-tested. SUM, UMWP and MATE completed under the original strict prompt with the override recorded. All nine artifacts in `1070238` were independently checked against dataset rows and hashes, parsing, metrics and confusion matrices. UNANSWERABLE F1 was 14.07%, 20.63% and 17.03% respectively. [Technical context and results](PROJECT_CONTEXT.md#meta-llama-31-8b-instruct-on-mercury)
@@ -39,14 +40,15 @@ The first four jobs (1879 through 1882) failed before inference because `sbatch 
 
 Gemma replaces Gemini. The remaining Meta evaluation completes the selected LLM roster. No additional LLM families are required.
 
-## Next work in priority order
+## Remaining work
 
-1. **Update the GPT-6.1 Terra notebook after MATE finishes.** The user reports that the API run is still in progress. Verify its saved artifacts before extending the notebook.
-2. **Complete final cross-model analysis, scientific report and presentation.** Cover dataset transfer, invalid outputs, pair/source/category results and qualitative errors. Keep original strict, modified strict and offline Phi-4 conditions distinct.
+All planned encoder and LLM evaluations are complete. The [GPT-6.1 Terra notebook](notebooks/12_gpt_terra_evaluation_analysis.ipynb) now covers SUM Test, UMWP and MATE and completes the three-dataset notebook integration. All ten code cells and five figures passed in fresh `fhgr` kernels from the repository root and `notebooks/`.
+
+Final cross-model comparison, comprehensive error analysis, scientific report preparation and the presentation remain pending. Keep the original strict, modified strict and offline Phi-4 conditions distinct.
 
 ## Local Git and uncommitted work
 
-Snapshot on 2026-11-24. Local HEAD is `b5a9027`. Nine notebook updates and this progress update are unstaged. The new Llama notebook is untracked. The running Terra MATE process and its files were left untouched.
+Snapshot on 2026-11-24. Local HEAD is `8a05adc`. The Terra notebook and two handover files are unstaged. Existing untracked Terra MATE and UMWP `limit_10` exports were preserved. The local MATE checkpoint and attempt records were inspected read-only.
 
 ## Continuing in a new conversation
 

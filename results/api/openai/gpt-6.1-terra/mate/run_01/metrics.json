@@ -1,0 +1,81 @@
+{
+  "num_examples": 9586,
+  "num_invalid": 0,
+  "invalid_rate": 0.0,
+  "accuracy": 0.8542666388483204,
+  "precision_unanswerable": 0.9253507014028056,
+  "recall_unanswerable": 0.7707072814521176,
+  "f1_unanswerable": 0.8409789413773477,
+  "positive_class": "UNANSWERABLE",
+  "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero.",
+  "confusion_matrix": [
+    [
+      4495,
+      298,
+      0
+    ],
+    [
+      1099,
+      3694,
+      0
+    ]
+  ],
+  "confusion_matrix_rows": [
+    "ANSWERABLE",
+    "UNANSWERABLE"
+  ],
+  "confusion_matrix_columns": [
+    "ANSWERABLE",
+    "UNANSWERABLE",
+    "INVALID"
+  ],
+  "run": {
+    "dataset": "mate",
+    "dataset_sha256": "377f7a28a6b2a5236ce24eeebc889c99ec38ff92c52c9b0a888d71f6542da5b8",
+    "row_count": 9586,
+    "limit": null,
+    "run_id": "run_01",
+    "model_id": "gpt-6.1-terra",
+    "endpoint": "POST /v1/chat/completions",
+    "openai_sdk_version": "2.54.0",
+    "parameters": {
+      "model": "gpt-6.1-terra",
+      "reasoning_effort": "none",
+      "temperature": 0,
+      "max_completion_tokens": 16,
+      "store": false,
+      "service_tier": "default"
+    },
+    "prompt_version": "original_frozen_zero_shot",
+    "prompt_sha256": "0f38d949358979147c7d89f8c1e4635c9608de88a47fe275a0fe816bd39bb68a",
+    "prompt": "Determine whether the following math problem can be answered using the information provided.\n\nRespond with exactly one label:\nANSWERABLE or UNANSWERABLE.\n\nDo not solve the problem or provide an explanation.\n\nMath problem:\n{question}\n\nLabel:",
+    "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero.",
+    "prices_usd_per_million": {
+      "input": 1.0,
+      "cached_input": 0.05,
+      "output": 5.0
+    },
+    "pricing_verified_date": "2026-11-22",
+    "started_at_utc": "2026-11-24T16:53:23+00:00",
+    "usage": {
+      "input_tokens": 918655,
+      "output_tokens": 51922,
+      "total_tokens": 970577,
+      "cached_input_tokens": 0,
+      "estimated_cost_usd": 1.178265,
+      "request_attempts": 9587,
+      "attempts_by_state": {
+        "completed": 9586,
+        "pending": 1
+      },
+      "completed_requests": 9586,
+      "responses_without_usage": 0,
+      "returned_models": [
+        "gpt-6.1-terra"
+      ],
+      "finish_reasons": {
+        "stop": 9586
+      }
+    }
+  }
+}

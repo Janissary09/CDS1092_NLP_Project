@@ -10,7 +10,7 @@ Read [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md) **first** for current status and
 
 The FH Graubünden CDS1092 project predicts **answerability of mathematical word problems**, not their numerical solutions. ANSWERABLE means sufficient information for a unique answer; UNANSWERABLE includes missing, ambiguous, contradictory or insufficient information. Mapping: **ANSWERABLE=0, UNANSWERABLE=1**, positive class UNANSWERABLE. Only question text is input (`README.md`; `src/05_train_bert_run02.py::LABEL_TO_ID`, `compute_metrics`).
 
-The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. All four selected encoders have saved MATE evaluations. The local LLM MATE results in `4c155fe` cover Apertus, Gemma, Mistral, Qwen and standard Phi-4. Meta Llama 3.1-8B-Instruct completed SUM Test, UMWP and MATE under the original strict prompt with the failed-smoke override recorded.
+The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. All four selected encoders have saved MATE evaluations. The local LLM MATE results in `4c155fe` cover Apertus, Gemma, Mistral, Qwen and standard Phi-4. Meta Llama 3.1-8B-Instruct completed SUM Test, UMWP and MATE under the original strict prompt with the failed-smoke override recorded. GPT-6.1 Terra completed MATE after checkpoint recovery. All planned encoder and LLM evaluations and their three-dataset notebooks are complete.
 
 The sibling LaTeX draft frames FF1 as fine-tuned encoder versus zero-shot classification, FF2 as transfer to external data, and FF3 as error analysis and implications for training and prompting. The comparison measures complete approaches with differing scale, pretraining, and access to task-specific training data. Formal directional hypotheses and a significance protocol are absent from the repository.
 
@@ -18,7 +18,7 @@ Gemma replaces the previously planned Gemini evaluation. The selected roster cov
 
 ## 2. Repository and sources
 
-Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `1070238`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
+Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `8a05adc`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
 
 ```text
 CDS1092_NLP_Project/
@@ -445,6 +445,7 @@ Scores are percentages. The archived metrics are in `results/llm/<slug>/<dataset
 | Standard Phi-4 14B | UMWP | 48.50 | 0.00 | 0.00 | 0.00 | 1943 |
 | GPT-6.1 Terra (API) | SUM Test | 86.04 | 90.93 | 80.06 | 85.15 | 0 |
 | GPT-6.1 Terra (API) | UMWP | 92.42 | 95.17 | 89.38 | 92.19 | 0 |
+| GPT-6.1 Terra (API) | MATE | 85.43 | 92.54 | 77.07 | 84.10 | 0 |
 
 ### Standard Phi-4 prompt sensitivity and offline postprocessing
 
@@ -475,15 +476,22 @@ New artifacts are `predictions.csv`, `metrics.json` and `confusion_matrix.csv` u
 
 ### GPT-6.1 Terra API
 
-`src/33_evaluate_openai.py` uses the original prompt with OpenAI Chat Completions, SDK 2.54.0, temperature 0, reasoning effort `none`, `max_completion_tokens=16`, `store=false` and `service_tier=default` (Standard). Tokenization and serving are provider-managed, and generated token IDs are unavailable. Both full runs record all rows received, with the returned ID `gpt-6.1-terra`, all finish reasons `stop`, and zero INVALID outputs.
+`src/33_evaluate_openai.py` uses the original prompt with OpenAI Chat Completions, SDK 2.54.0, temperature 0, reasoning effort `none`, `max_completion_tokens=16`, `store=false` and `service_tier=default` (Standard). Tokenization and serving are provider-managed, and generated token IDs are unavailable. All three full runs record all rows received, with the returned ID `gpt-6.1-terra`, all finish reasons `stop`, and zero INVALID outputs.
 
 | Saved run | Completed requests | Input tokens | Output tokens | Total tokens | Estimated USD |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | SUM Test | 10,944 | 1,241,573 | 59,538 | 1,301,111 | 1.539263 |
 | UMWP | 5,200 | 506,868 | 28,442 | 535,310 | 0.649078 |
+| MATE | 9,586 | 918,655 | 51,922 | 970,577 | 1.178265 |
 | UMWP first-10 smoke | 10 | 857 | 50 | 907 | 0.001107 |
 
 The locally untracked smoke artifacts are under `results/api/openai/gpt-6.1-terra/umwp/limit_10/run_01/`. All ten gold labels were ANSWERABLE, all ten predictions were correct, and positive-class precision/recall/F1 were 0 by the zero-denominator convention. This is an API pipeline check. Cost figures come from archived usage and pricing estimates. [API setup and resume guide](OPENAI_EVALUATION.md)
+
+The [Terra notebook](notebooks/12_gpt_terra_evaluation_analysis.ipynb) now compares SUM Test, UMWP and MATE. The three full runs recorded 2,806,998 tokens and an estimated USD 3.366606, excluding the first-10 smoke check.
+
+**MATE verification.** The 9,586 rows in `results/api/openai/gpt-6.1-terra/mate/run_01/` match the fixed benchmark exactly in text, true label and metadata. Question IDs are 1 through 9,586 and row indices are 0 through 9,585. The file-byte and LF-normalized MATE hashes match the pinned SHA-256 above. The saved prompt matches the original shared prompt; Chat Completions parameters match the SUM and UMWP runs. Exact whole-response parsing gave zero INVALID outputs. The confusion matrix was independently reconstructed as `[[4495, 298, 0], [1099, 3694, 0]]` with actual ANSWERABLE and UNANSWERABLE rows and predicted ANSWERABLE, UNANSWERABLE and INVALID columns. Recomputed metrics match the JSON and CSV artifacts. Accuracy was 85.43%, UNANSWERABLE precision 92.54%, recall 77.07%, and F1 84.10%.
+
+**Checkpoint recovery and billing.** The run resumed with `--retry-uncertain` after a reported network disconnection. Read-only SQLite inspection found pending attempt 8826 at 20:26:33 UTC and completed attempt 8827 at 20:28:48 UTC on 2026-11-24 for the same zero-based row 8825 (MATE ID 8826). That row has one saved response, and all other rows are also covered. The ledger records 9,587 attempts, 9,586 completed requests and one preserved pending attempt. Independent totals from the recorded responses give 918,655 input tokens (zero cached) and 51,922 output tokens. At the archived rates these total USD 1.178265 in estimated usage. The first attempt has no recorded response or usage. It may have been processed and billed by the provider, so the estimate excludes any such charge. Actual billing remains unverified and the original ledger and usage were preserved.
 
 ### Blocked or limited model attempts
 
@@ -526,7 +534,7 @@ All three benchmarks completed, with nine archived result files in `1070238` und
 | UMWP | 5,200 | 55.31 | 92.07 | 11.62 | 20.63 | 1 |
 | MATE | 9,586 | 54.14 | 89.31 | 9.41 | 17.03 | 0 |
 
-Independently validated the dataset hashes, saved row order, texts, labels, IDs and metadata (with CRLF normalized for text alignment), strict predictions, score arithmetic and both confusion-matrix formats. Verified the original prompt, greedy decoding, one beam, 16-token cap and the recorded smoke override. The GPT-6.1 Terra MATE API run was reported in progress locally during this update.
+Independently validated the dataset hashes, saved row order, texts, labels, IDs and metadata (with CRLF normalized for text alignment), strict predictions, score arithmetic and both confusion-matrix formats. Verified the original prompt, greedy decoding, one beam, 16-token cap and the recorded smoke override.
 
 
 ## 15. Repository inventory
