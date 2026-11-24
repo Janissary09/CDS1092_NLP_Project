@@ -14,15 +14,15 @@ case "$*" in
     "smoke run_02")
         evaluator=src/32_evaluate_phi4_prompt_sensitivity.py
         args=(--smoke-test) ;;
-    "umwp run_01"|"sum run_01") args=(--dataset "$1" --run-id "$2") ;;
-    "umwp run_01 --allow-failed-smoke"|"sum run_01 --allow-failed-smoke")
+    "umwp run_01"|"sum run_01"|"mate run_01") args=(--dataset "$1" --run-id "$2") ;;
+    "umwp run_01 --allow-failed-smoke"|"sum run_01 --allow-failed-smoke"|"mate run_01 --allow-failed-smoke")
         args=(--dataset "$1" --run-id "$2" --allow-failed-smoke) ;;
-    "umwp run_02"|"sum run_02"|"umwp run_02 --allow-failed-smoke"|"sum run_02 --allow-failed-smoke")
+    "umwp run_02"|"sum run_02"|"mate run_02"|"umwp run_02 --allow-failed-smoke"|"sum run_02 --allow-failed-smoke"|"mate run_02 --allow-failed-smoke")
         evaluator=src/32_evaluate_phi4_prompt_sensitivity.py
         args=(--dataset "$1" --run-id "$2" "${@:3}") ;;
     *)
         echo "Usage: sbatch --time=00:15:00 slurm/evaluate_phi4_standard.sh smoke [run_02]" >&2
-        echo "       sbatch slurm/evaluate_phi4_standard.sh {umwp|sum} {run_01|run_02} [--allow-failed-smoke]" >&2
+        echo "       sbatch slurm/evaluate_phi4_standard.sh {umwp|sum|mate} {run_01|run_02} [--allow-failed-smoke]" >&2
         exit 2
         ;;
 esac

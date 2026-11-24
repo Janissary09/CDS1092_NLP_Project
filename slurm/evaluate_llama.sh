@@ -14,9 +14,9 @@ case "$*" in
     diagnose-activations) args=(--diagnose-activations) ;;
     diagnose-boundary) args=(--diagnose-boundary) ;;
     diagnose-transfer) args=(--diagnose-transfer) ;;
-    "umwp run_01"|"sum run_01") args=(--dataset "$1" --run-id "$2") ;;
+    "umwp run_01"|"sum run_01"|"mate run_01") args=(--dataset "$1" --run-id "$2") ;;
     *)
-        echo "Usage: sbatch slurm/evaluate_llama.sh smoke | diagnose-forward | diagnose-activations | diagnose-boundary | diagnose-transfer | {umwp|sum} run_01" >&2
+        echo "Usage: sbatch slurm/evaluate_llama.sh smoke | diagnose-forward | diagnose-activations | diagnose-boundary | diagnose-transfer | {umwp|sum|mate} run_01" >&2
         exit 2
         ;;
 esac

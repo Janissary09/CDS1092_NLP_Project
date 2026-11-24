@@ -38,6 +38,11 @@ secrets.local.json
 /data/raw/umwp/*
 !/data/raw/umwp/StandardDataset.jsonl
 
+# Allow only the corrected raw MATE benchmark
+!/data/raw/mate/
+/data/raw/mate/*
+!/data/raw/mate/MATE Dataset.csv
+
 # Allow only the final processed SUM experiment splits
 !/data/processed/
 /data/processed/*
@@ -51,6 +56,12 @@ secrets.local.json
 !/data/processed/umwp/
 /data/processed/umwp/*
 !/data/processed/umwp/test.csv
+
+# Allow only the fixed processed MATE benchmark and exclusion ledger
+!/data/processed/mate/
+/data/processed/mate/*
+!/data/processed/mate/test.csv
+!/data/processed/mate/excluded_pairs.csv
 
 # Model checkpoints and weights
 /models/

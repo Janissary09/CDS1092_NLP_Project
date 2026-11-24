@@ -9,9 +9,9 @@
 set -Eeuo pipefail
 case "$*" in
     smoke) args=(--smoke-test) ;;
-    "umwp run_01"|"sum run_01") args=(--dataset "$1" --run-id "$2") ;;
+    "umwp run_01"|"sum run_01"|"mate run_01") args=(--dataset "$1" --run-id "$2") ;;
     *)
-        echo "Usage: sbatch slurm/evaluate_gemma.sh smoke | {umwp|sum} run_01" >&2
+        echo "Usage: sbatch slurm/evaluate_gemma.sh smoke | {umwp|sum|mate} run_01" >&2
         exit 2
         ;;
 esac

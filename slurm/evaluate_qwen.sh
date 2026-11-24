@@ -7,8 +7,8 @@
 #SBATCH --signal=B:TERM@120
 
 set -Eeuo pipefail
-if [[ $# -ne 2 || ( $1 != umwp && $1 != sum ) ]]; then
-    echo "Usage: sbatch [SLURM options] slurm/evaluate_qwen.sh {umwp|sum} RUN_ID" >&2
+if [[ $# -ne 2 || ( $1 != umwp && $1 != sum && $1 != mate ) ]]; then
+    echo "Usage: sbatch [SLURM options] slurm/evaluate_qwen.sh {umwp|sum|mate} RUN_ID" >&2
     exit 2
 fi
 

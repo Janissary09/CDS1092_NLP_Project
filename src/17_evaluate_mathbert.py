@@ -2,6 +2,7 @@
 
 Usage: python src/17_evaluate_mathbert.py --dataset sum
        python src/17_evaluate_mathbert.py --dataset umwp
+       python src/17_evaluate_mathbert.py --dataset mate
 Default (no arguments): evaluate both benchmarks separately.
 Only requested test data are read. Outputs must not already exist.
 The model/tokenizer are loaded locally; no checkpoint selection or training occurs.
@@ -12,6 +13,7 @@ import json
 import hashlib
 import platform
 from importlib.metadata import PackageNotFoundError, version
+from importlib import import_module
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +27,7 @@ CONFIG_PATH = ROOT / "results/mathbert/run_04/config.json"
 VALIDATION_PATH = CONFIG_PATH.with_name("validation_metrics.json")
 LABEL_TO_ID = {"ANSWERABLE": 0, "UNANSWERABLE": 1}
 LABELS = list(LABEL_TO_ID)
+DATASET_OUTPUTS = {"sum": "sum_test", "umwp": "umwp", "mate": "mate"}
 
 
 def require(condition, message):
@@ -34,6 +37,10 @@ def require(condition, message):
 
 def load_dataset(name):
     path = ROOT / f"data/processed/{name}/test.csv"
+    if name == "mate":
+        shared = import_module("25_evaluate_qwen")
+        rows, _ = shared.load_dataset(ROOT, name)
+        return path, pd.DataFrame(rows).astype({"id": int, "pair_id": int, "label_id": int})
     # Preserve literal text and metadata such as strings resembling NA tokens.
     frame = pd.read_csv(path, keep_default_na=False)
     required = {"text", "label", "pair_id"} if name == "sum" else {
@@ -89,7 +96,7 @@ def evaluate_dataset(dataset):
     batch_size = int(config.get("eval_batch_size", config["batch_size"]))
     require(max_length > 0 and batch_size > 0, "Invalid saved tokenization/batch settings.")
     dataset_path, frame = load_dataset(dataset)
-    output = ROOT / "results/mathbert/run_04" / ("sum_test" if dataset == "sum" else "umwp")
+    output = ROOT / "results/mathbert/run_04" / DATASET_OUTPUTS[dataset]
     # Protect previously recorded evaluation and training artifacts.
     if output.exists():
         raise FileExistsError(f"Evaluation output already exists; refusing to overwrite: {output}")
@@ -225,14 +232,14 @@ def evaluate_dataset(dataset):
 def main():
     parser = argparse.ArgumentParser(
         description="Evaluation only: frozen MathBERT Run 04; no training or test-based selection.")
-    parser.add_argument("--dataset", choices=["sum", "umwp", "both"], default="both",
+    parser.add_argument("--dataset", choices=[*DATASET_OUTPUTS, "both"], default="both",
                         help="Default: both benchmarks; each is saved separately.")
     args = parser.parse_args()
     datasets = ["sum", "umwp"] if args.dataset == "both" else [args.dataset]
     # Preflight all requested destinations so an existing second benchmark
     # cannot cause an avoidable partial rerun of the first benchmark.
     for dataset in datasets:
-        output = CONFIG_PATH.parent / ("sum_test" if dataset == "sum" else "umwp")
+        output = CONFIG_PATH.parent / DATASET_OUTPUTS[dataset]
         if output.exists():
             raise FileExistsError(f"Evaluation output already exists; refusing to overwrite: {output}")
     for dataset in datasets:

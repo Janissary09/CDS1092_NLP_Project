@@ -3,7 +3,7 @@
 Usage: python src/24_evaluate_encoders.py --model deberta
        python src/24_evaluate_encoders.py --model modernbert
        python src/24_evaluate_encoders.py --model both
-Each command defaults to both test benchmarks; --dataset sum|umwp is optional.
+Each command defaults to both test benchmarks; --dataset sum|umwp|mate is optional.
 Only saved local checkpoints/tokenizers are loaded. No training, model search,
 threshold tuning, downloads or checkpoint writes. Existing outputs are refused.
 """
@@ -16,6 +16,7 @@ import os
 import platform
 import re
 from importlib.metadata import PackageNotFoundError, version
+from importlib import import_module
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +27,7 @@ from sklearn.metrics import (accuracy_score, classification_report, confusion_ma
 ROOT = Path(__file__).resolve().parents[1]
 LABEL_TO_ID = {"ANSWERABLE": 0, "UNANSWERABLE": 1}
 LABELS = list(LABEL_TO_ID)
+DATASET_OUTPUTS = {"sum": "sum_test", "umwp": "umwp", "mate": "mate"}
 SELECTED = {
     "deberta": ("run_05", "microsoft/deberta-v3-base", "deberta-v2"),
     "modernbert": ("run_06", "answerdotai/ModernBERT-base", "modernbert"),
@@ -39,6 +41,10 @@ def require(condition, message):
 
 def load_dataset(name):
     path = ROOT / f"data/processed/{name}/test.csv"
+    if name == "mate":
+        shared = import_module("25_evaluate_qwen")
+        rows, _ = shared.load_dataset(ROOT, name)
+        return path, pd.DataFrame(rows).astype({"id": int, "pair_id": int, "label_id": int})
     # Preserve literal text and metadata such as strings resembling NA tokens.
     frame = pd.read_csv(path, keep_default_na=False)
     required = {"text", "label", "pair_id"} if name == "sum" else {
@@ -164,7 +170,7 @@ def preflight(families, datasets):
     for family in families:
         run = SELECTED[family][0]
         for dataset in datasets:
-            output = ROOT / "results" / family / run / ("sum_test" if dataset == "sum" else "umwp")
+            output = ROOT / "results" / family / run / DATASET_OUTPUTS[dataset]
             if output.exists():
                 raise FileExistsError(f"Evaluation output exists; refusing to overwrite: {output}")
         selections.append(resolve_selection(family))
@@ -176,7 +182,7 @@ def evaluate_dataset(dataset, selection, model, tokenizer, torch, device):
     config = selection["config"]
     dataset_path, frame = load_dataset(dataset)
     batch_size, max_length = selection["batch_size"], int(config["max_length"])
-    output = selection["result_root"] / ("sum_test" if dataset == "sum" else "umwp")
+    output = selection["result_root"] / DATASET_OUTPUTS[dataset]
     if output.exists():
         raise FileExistsError(f"Evaluation output exists; refusing to overwrite: {output}")
     model.eval()
@@ -293,7 +299,7 @@ def evaluate_dataset(dataset, selection, model, tokenizer, torch, device):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True, choices=["deberta", "modernbert", "both"])
-    parser.add_argument("--dataset", choices=["sum", "umwp", "both"], default="both")
+    parser.add_argument("--dataset", choices=[*DATASET_OUTPUTS, "both"], default="both")
     args = parser.parse_args()
     families = list(SELECTED) if args.model == "both" else [args.model]
     datasets = ["sum", "umwp"] if args.dataset == "both" else [args.dataset]

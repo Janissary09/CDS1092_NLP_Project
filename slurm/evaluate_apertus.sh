@@ -7,9 +7,10 @@
 
 # Set --time at submission: 03:00:00 for UMWP, 04:00:00 for SUM.
 set -Eeuo pipefail
-if [[ $# -ne 2 || ( $1 != umwp && $1 != sum ) ]]; then
+if [[ $# -ne 2 || ( $1 != umwp && $1 != sum && $1 != mate ) ]]; then
     echo "Usage: sbatch --time=03:00:00 slurm/evaluate_apertus.sh umwp RUN_ID" >&2
     echo "       sbatch --time=04:00:00 slurm/evaluate_apertus.sh sum RUN_ID" >&2
+    echo "       sbatch [SLURM options] slurm/evaluate_apertus.sh mate RUN_ID" >&2
     exit 2
 fi
 

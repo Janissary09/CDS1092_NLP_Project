@@ -2,11 +2,13 @@
 
 Usage: python src/09_evaluate_bert.py --dataset sum
        python src/09_evaluate_bert.py --dataset umwp
+       python src/09_evaluate_bert.py --dataset mate
 Only the explicitly selected test dataset is read. Outputs must not already exist.
 """
 
 import argparse
 import json
+from importlib import import_module
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +21,7 @@ MODEL_PATH = ROOT / "models/bert/run_02/best_model"
 CONFIG_PATH = ROOT / "results/bert/run_02/config.json"
 LABEL_TO_ID = {"ANSWERABLE": 0, "UNANSWERABLE": 1}
 LABELS = list(LABEL_TO_ID)
+DATASET_OUTPUTS = {"sum": "sum_test", "umwp": "umwp", "mate": "mate"}
 
 
 def require(condition, message):
@@ -28,6 +31,10 @@ def require(condition, message):
 
 def load_dataset(name):
     path = ROOT / f"data/processed/{name}/test.csv"
+    if name == "mate":
+        shared = import_module("25_evaluate_qwen")
+        rows, _ = shared.load_dataset(ROOT, name)
+        return path, pd.DataFrame(rows).astype({"id": int, "pair_id": int, "label_id": int})
     # Preserve literal text and metadata such as strings resembling NA tokens.
     frame = pd.read_csv(path, keep_default_na=False)
     required = {"text", "label", "pair_id"} if name == "sum" else {
@@ -61,7 +68,7 @@ def calculate_metrics(true_ids, predicted_ids):
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluation only: frozen BERT Run 02, no training/tuning.")
-    parser.add_argument("--dataset", required=True, choices=["sum", "umwp"])
+    parser.add_argument("--dataset", required=True, choices=DATASET_OUTPUTS)
     args = parser.parse_args()
     if not MODEL_PATH.is_dir():
         raise FileNotFoundError(f"Selected model directory missing: {MODEL_PATH}")
@@ -72,7 +79,7 @@ def main():
     batch_size = int(config.get("eval_batch_size", config["batch_size"]))
     require(max_length > 0 and batch_size > 0, "Invalid saved tokenization/batch settings.")
     dataset_path, frame = load_dataset(args.dataset)
-    output = ROOT / "results/bert/run_02" / ("sum_test" if args.dataset == "sum" else "umwp")
+    output = ROOT / "results/bert/run_02" / DATASET_OUTPUTS[args.dataset]
     # Protect previously recorded evaluation and training artifacts.
     if output.exists():
         raise FileExistsError(f"Evaluation output already exists; refusing to overwrite: {output}")

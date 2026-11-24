@@ -1,6 +1,7 @@
 """Run the complete zero-shot Qwen evaluation on one fixed benchmark."""
 
 import argparse
+from collections import defaultdict
 from contextlib import closing
 import csv
 import hashlib
@@ -19,11 +20,14 @@ MODEL_ID = "Qwen/Qwen3.6-27B"
 MODEL_PATH = ROOT / "models/Qwen3.6-27B"
 LABELS = ("ANSWERABLE", "UNANSWERABLE")
 INVALID = "INVALID"
+MATE_LABEL_IDS = {"ANSWERABLE": "0", "UNANSWERABLE": "1"}
 DATASETS = {
     "umwp": (5200, ("id", "text", "label", "category", "source"), "id",
              "92df3bed2d3cee139c6ddbca2673fca0a1687aa9f90b3cac27b2627605d90ecb"),
     "sum": (10944, ("pair_id", "text", "label"), "pair_id",
             "c1e4bac1e1d1f27ab8a6408ac68ae710faf521822bff49a1c5958b027540b1f0"),
+    "mate": (9586, ("id", "pair_id", "text", "label", "source", "category", "label_id"), "id",
+             "377f7a28a6b2a5236ce24eeebc889c99ec38ff92c52c9b0a888d71f6542da5b8"),
 }
 PROMPT = """Determine whether the following math problem can be answered using the information provided.
 
@@ -57,11 +61,32 @@ def load_dataset(root, dataset):
     rows = list(reader)
     if tuple(reader.fieldnames or ()) != fields or len(rows) != expected:
         raise ValueError(f"Unexpected schema or row count: {path}")
+    if dataset == "mate" and any(None in row or None in row.values() for row in rows):
+        raise ValueError(f"Malformed MATE record: {path}")
     if any(not row[identifier].strip() or not row["text"].strip() for row in rows):
         raise ValueError(f"Empty identifier or question: {path}")
     if any(sum(row["label"] == label for row in rows) != expected // 2 for label in LABELS):
         raise ValueError(f"Unexpected labels or class counts: {path}")
+    if dataset == "mate":
+        validate_mate_rows(rows)
     return rows, digest
+
+
+def validate_mate_rows(rows):
+    pairs = defaultdict(list)
+    for index, row in enumerate(rows, start=1):
+        if row["id"] != str(index):
+            raise ValueError("MATE question IDs must be sequential from 1 in file order.")
+        pair_id = row["pair_id"]
+        if not pair_id.isascii() or not pair_id.isdecimal() or pair_id.startswith("0"):
+            raise ValueError(f"Invalid MATE pair ID at question {index}.")
+        if row["label_id"] != MATE_LABEL_IDS[row["label"]]:
+            raise ValueError(f"MATE numeric label disagrees with the string label at question {index}.")
+        if not row["source"].strip():
+            raise ValueError(f"Missing MATE source at question {index}.")
+        pairs[pair_id].append(row["label"])
+    if len(pairs) != 4793 or any(sorted(labels) != list(LABELS) for labels in pairs.values()):
+        raise ValueError("MATE must contain 4,793 complete pairs with one question per label.")
 
 
 def parse_label(raw):
