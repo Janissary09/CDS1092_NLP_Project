@@ -1,0 +1,55 @@
+{
+  "num_examples": 9586,
+  "num_invalid": 0,
+  "invalid_rate": 0.0,
+  "accuracy": 0.8458168161902775,
+  "precision_unanswerable": 0.8936119686535264,
+  "recall_unanswerable": 0.7851032756102649,
+  "f1_unanswerable": 0.8358507330075522,
+  "positive_class": "UNANSWERABLE",
+  "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero.",
+  "confusion_matrix": [
+    [
+      4345,
+      448,
+      0
+    ],
+    [
+      1030,
+      3763,
+      0
+    ]
+  ],
+  "confusion_matrix_rows": [
+    "ANSWERABLE",
+    "UNANSWERABLE"
+  ],
+  "confusion_matrix_columns": [
+    "ANSWERABLE",
+    "UNANSWERABLE",
+    "INVALID"
+  ],
+  "run": {
+    "dataset": "mate",
+    "dataset_sha256": "377f7a28a6b2a5236ce24eeebc889c99ec38ff92c52c9b0a888d71f6542da5b8",
+    "row_count": 9586,
+    "run_id": "run_01",
+    "model_id": "Qwen/Qwen3.6-27B",
+    "model_path": "models/Qwen3.6-27B",
+    "model_sha256": "16298e055beee94c167be3e842570c20fe919a2acaa99777ea2243dad2ee102a",
+    "evaluator_sha256": "9a1a360dc9f154d3b71910a8370377b4138e99529728d9d79aa87f8f7791cf60",
+    "prompt": "Determine whether the following math problem can be answered using the information provided.\n\nRespond with exactly one label:\nANSWERABLE or UNANSWERABLE.\n\nDo not solve the problem or provide an explanation.\n\nMath problem:\n{question}\n\nLabel:",
+    "chat_template": "model default, user message only, enable_thinking=False",
+    "dtype": "bfloat16",
+    "quantization": null,
+    "gpu": "NVIDIA A100 80GB PCIe",
+    "requested_temperature": 0,
+    "do_sample": false,
+    "num_beams": 1,
+    "max_new_tokens": 16,
+    "torch_version": "2.11.0+cu128",
+    "transformers_version": "5.22.2",
+    "cuda_version": "12.8",
+    "invalid_output_policy": "After trimming surrounding whitespace, only exact uppercase labels are valid. INVALID is incorrect for accuracy and is a separate confusion-matrix column. INVALID on a true UNANSWERABLE row counts as a missed positive for recall and F1. Precision uses all predicted UNANSWERABLE rows. Zero denominators yield zero."
+  }
+}
