@@ -1,0 +1,8 @@
+              precision    recall  f1-score   support
+
+  ANSWERABLE   0.727769  0.751304  0.739349      4793
+UNANSWERABLE   0.742993  0.718965  0.730781      4793
+
+    accuracy                       0.735135      9586
+   macro avg   0.735381  0.735135  0.735065      9586
+weighted avg   0.735381  0.735135  0.735065      9586

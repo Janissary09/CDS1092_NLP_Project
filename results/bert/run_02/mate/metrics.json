@@ -1,0 +1,35 @@
+{
+  "accuracy": 0.740246192363864,
+  "precision_unanswerable": 0.7305305305305305,
+  "recall_unanswerable": 0.7613185896098477,
+  "f1_unanswerable": 0.7456068655496526,
+  "macro_f1": 0.7401307985037265,
+  "total_examples": 9586,
+  "correct_predictions": 7096,
+  "incorrect_predictions": 2490,
+  "dataset": "mate",
+  "dataset_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/data/processed/mate/test.csv",
+  "model_path": "/home/arikanmurat@edu.local/projects/CDS1092_NLP_Project/models/bert/run_02/best_model",
+  "selected_run": "run_02",
+  "positive_class": "UNANSWERABLE",
+  "max_length": 256,
+  "eval_batch_size": 32,
+  "device": "cuda",
+  "confusion_matrix": [
+    [
+      3447,
+      1346
+    ],
+    [
+      1144,
+      3649
+    ]
+  ],
+  "confusion_matrix_label_order": [
+    "ANSWERABLE",
+    "UNANSWERABLE"
+  ],
+  "confusion_matrix_axes": "rows=true, columns=predicted",
+  "prediction_rule": "argmax",
+  "evaluation_only": true
+}
