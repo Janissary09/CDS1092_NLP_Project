@@ -10,7 +10,7 @@ Read [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md) **first** for current status and
 
 The FH Graubünden CDS1092 project predicts **answerability of mathematical word problems**, not their numerical solutions. ANSWERABLE means sufficient information for a unique answer; UNANSWERABLE includes missing, ambiguous, contradictory or insufficient information. Mapping: **ANSWERABLE=0, UNANSWERABLE=1**, positive class UNANSWERABLE. Only question text is input (`README.md`; `src/05_train_bert_run02.py::LABEL_TO_ID`, `compute_metrics`).
 
-The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. Meta Llama and MATE evaluations remain pending.
+The comparison uses the same fixed test questions for SUM-fine-tuned encoders and general-purpose zero-shot LLMs. SUM provides training, validation and held-out internal test data. UMWP and MATE are external evaluation datasets. The four selected encoders have completed SUM Test and UMWP evaluation. Qwen, Apertus, Mistral, Gemma and GPT-6.1 Terra have full strict frozen-prompt results on both datasets. Standard Phi-4 has an original-prompt result on UMWP and separate sensitivity runs. BERT, DeBERTa and ModernBERT have completed MATE evaluation. MathBERT and LLM MATE evaluations and the Meta Llama evaluation remain pending.
 
 The sibling LaTeX draft frames FF1 as fine-tuned encoder versus zero-shot classification, FF2 as transfer to external data, and FF3 as error analysis and implications for training and prompting. The comparison measures complete approaches with differing scale, pretraining, and access to task-specific training data. Formal directional hypotheses and a significance protocol are absent from the repository.
 
@@ -18,7 +18,7 @@ Gemma replaces the previously planned Gemini evaluation. The selected roster cov
 
 ## 2. Repository and sources
 
-Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `9862876`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
+Root: `C:/Users/Murat Arikan/dev/school/03_hs_26/NLP/CDS1092_NLP_Project`, separate Git repository. Inspection HEAD: `596029d`. Local origin is `https://github.com/Janissary09/CDS1092_NLP_Project.git`; README describes a Mercury SSH remote.
 
 ```text
 CDS1092_NLP_Project/
@@ -381,7 +381,7 @@ The processed set contains 9,586 rows in 4,793 complete pairs, with 4,793 rows p
 | `data/processed/mate/test.csv` | `id,pair_id,text,label,source,category,label_id` | `377f7a28a6b2a5236ce24eeebc889c99ec38ff92c52c9b0a888d71f6542da5b8` |
 | `data/processed/mate/excluded_pairs.csv` | `pair_id,exact_match_rows,normalized_only_match_rows,reason` | `478e7b5ef5bea2d105b07552d25131d000c69dc3660f34db1cbd5317aea86e19` |
 
-The processed test SHA-256 after CRLF-to-LF normalization is `377f7a28a6b2a5236ce24eeebc889c99ec38ff92c52c9b0a888d71f6542da5b8`. It matches the file-byte hash because the notebook exports LF line endings. Both UTF-8 CSV exports were reloaded and verified field by field in saved row order. The raw hash was rechecked after export. Git allowlists the processed test CSV and exclusion ledger explicitly. Both are currently untracked. Text-level overlap checks cannot establish semantic independence or exclude pretraining exposure.
+The processed test SHA-256 after CRLF-to-LF normalization is `377f7a28a6b2a5236ce24eeebc889c99ec38ff92c52c9b0a888d71f6542da5b8`. It matches the file-byte hash because the notebook exports LF line endings. Both UTF-8 CSV exports were reloaded and verified field by field in saved row order. The raw hash was rechecked after export. Git allowlists the processed test CSV and exclusion ledger explicitly. Both are tracked. Text-level overlap checks cannot establish semantic independence or exclude pretraining exposure.
 
 ### Evaluation integration
 
@@ -389,7 +389,21 @@ Use `--dataset mate` with the encoder, local LLM and OpenAI API entry points. Th
 
 Local LLM and hosted API outputs inherit the shared loader and preserve `id` as the question identifier and `pair_id` as metadata. The SQLite response key remains the zero-based row index. API resume binds that index to the fixed dataset hash, row order and run settings through the checkpoint manifest. Full and limited runs use separate paths. All seven local LLM Slurm wrappers accept MATE, including the existing standard Phi-4 prompt variants and smoke overrides. Question text remains the only model input.
 
-Offline checks passed for all 12 Python CLI entry points, all dataset loaders, MATE metadata and encoder overwrite guards, API checkpoint isolation and resume, and Bash syntax and option dispatch for all seven wrappers. The 59 existing offline evaluator tests passed. No MATE model runs have been performed. For Mercury, publish the code and allowlisted CSVs through the usual reviewed Git workflow, then pull and verify the dataset fingerprint before running jobs.
+Offline checks passed for all 12 Python CLI entry points, all dataset loaders, MATE metadata and encoder overwrite guards, API checkpoint isolation and resume, and Bash syntax and option dispatch for all seven wrappers. The 59 existing offline evaluator tests passed.
+
+### Completed MATE encoder evaluations on Mercury
+
+The three runs below completed on 2026-11-24. All 13 result files are available locally in commit `596029d`. Slurm job IDs and failure details come from the Mercury run history supplied by the user.
+
+| Encoder and artifact directory | Slurm job | Accuracy | Precision | Recall | F1 UNANSWERABLE | Macro-F1 | Correct / incorrect |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| [BERT Run 02](results/bert/run_02/mate/) | 1883 | 0.7402461924 | 0.7305305305 | 0.7613185896 | 0.7456068655 | 0.7401307985 | 7,096 / 2,490 |
+| [DeBERTa Run 05](results/deberta/run_05/mate/) | 1885 | 0.7599624452 | 0.7500000000 | 0.7798873357 | 0.7646517337 | 0.7598671122 | 7,285 / 2,301 |
+| [ModernBERT Run 06](results/modernbert/run_06/mate/) | 1886 | 0.7351345712 | 0.7429926693 | 0.7189651575 | 0.7307814654 | 0.7350653041 | 7,047 / 2,539 |
+
+Each prediction file contains 9,586 records in benchmark order with unique sequential question IDs and matching text, pair IDs, labels and metadata. Local verification normalized CRLF to LF in question text for the Windows checkout. The confusion matrices reconstructed from predictions matched both saved CSV and JSON. Accuracy, UNANSWERABLE precision/recall/F1, macro-F1, and correct/incorrect counts were recalculated. All runs used CUDA, maximum sequence length 256, evaluation batch size 32, and argmax. BERT loaded the Run 02 `best_model/` export. DeBERTa and ModernBERT loaded their validation-selected `checkpoint-11172/` directories directly.
+
+The initial jobs 1879 through 1882 failed before inference because `sbatch --wrap` used `sh`, which did not support `source`. Explicit Bash resolved that launch issue. MathBERT job 1884 then failed before model loading because `evaluate_dataset()` still allowed only SUM and UMWP, although the CLI already accepted MATE. The local fix checks `DATASET_OUTPUTS` in both paths. The offline regression exercises the real CLI, configuration and dataset loading, and output checks up to the model-runtime import for all three datasets. It also verifies that the default and `both` still select SUM and UMWP. Three new regression tests and 59 existing evaluator tests passed. The fix still needs to reach Mercury before MathBERT Run 04 can be evaluated on MATE.
 
 
 ## 14. Zero-shot LLM protocol and completed runs

@@ -74,7 +74,7 @@ def calculate_metrics(true_ids, predicted_ids):
 
 def evaluate_dataset(dataset):
     """Evaluate one explicit benchmark with the already selected best model."""
-    require(dataset in {"sum", "umwp"}, "Expected SUM test or UMWP.")
+    require(dataset in DATASET_OUTPUTS, f"Unsupported benchmark: {dataset}.")
     if not MODEL_PATH.is_dir():
         raise FileNotFoundError(f"Selected model directory missing: {MODEL_PATH}")
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
